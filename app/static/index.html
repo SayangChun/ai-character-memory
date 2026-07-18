@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="把 AI 角色人设与记忆打包成标准本地文件（.acm.json）。换平台时上传文件即可恢复，无需再访问原站点。" />
+  <title>AI 角色记忆站</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- 主应用 -->
+  <div id="viewApp" class="view app">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>💜 角色记忆站</h1>
+        <p>本地文件 · 跨平台恢复</p>
+      </div>
+
+      <div class="stats-row" id="stats"></div>
+      <div class="sidebar-actions">
+        <button class="btn btn-primary" id="btnNewChar">＋ 新建角色</button>
+        <label class="btn btn-accent" style="cursor:pointer" title="上传 .acm.json 恢复记忆">
+          ⬆ 上传本地记忆包
+          <input type="file" id="fileImport" accept="application/json,.json,.acm.json" hidden />
+        </label>
+        <button class="btn" id="btnDemo">加载演示角色</button>
+        <button class="btn" id="btnRefresh">刷新</button>
+
+      </div>
+      <div class="import-mode-box">
+        <div class="hint" style="margin-bottom:6px">上传时策略</div>
+        <select id="importMode" title="导入模式">
+          <option value="create">新建角色（推荐首次）</option>
+          <option value="merge">合并到同名角色</option>
+          <option value="replace">覆盖同名角色记忆</option>
+        </select>
+      </div>
+      <div class="char-list" id="charList"></div>
+    </aside>
+
+    <main class="main">
+      <div class="empty-state" id="emptyMain">
+        <div class="big">💾</div>
+        <h2>选择角色，或上传本地记忆包</h2>
+        <p>整理记忆 → 下载 <code>.acm.json</code> 到本地 → 换平台时上传文件恢复。</p>
+      </div>
+
+      <div id="mainContent" style="display:none">
+        <div class="topbar">
+          <div>
+            <h2 id="charTitle"></h2>
+            <div class="hint" id="charSub"></div>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-primary" id="btnDownloadPortable">⬇ 下载到本地</button>
+            <button class="btn" id="btnEditChar">编辑角色</button>
+            <button class="btn" id="btnAddMem">＋ 添加记忆</button>
+            <button class="btn" id="btnImport">从对话提取</button>
+            <button class="btn btn-danger" id="btnDeleteChar">删除角色</button>
+          </div>
+        </div>
+
+        <!-- 本地可移植包（主工作流） -->
+        <section class="panel portable-panel">
+          <h3>本地可移植记忆包</h3>
+          <p class="hint">
+            标准格式 <code id="portableFormatLabel">ai-character-memory</code>
+            · 下载后保存在你的电脑 / 网盘。换平台时<strong>上传该文件</strong>即可恢复，不必再打开本站取数。
+          </p>
+          <div class="portable-actions">
+            <button class="btn btn-primary btn-lg" id="btnDownloadPortableMain">⬇ 下载 .acm.json</button>
+            <label class="btn btn-lg" style="cursor:pointer">
+              ⬆ 上传文件恢复
+              <input type="file" id="fileImportMain" accept="application/json,.json,.acm.json" hidden />
+            </label>
+            <button class="btn" id="btnCopyPortableJson">复制 JSON</button>
+            <button class="btn btn-ghost" id="btnShowSpec">格式说明</button>
+          </div>
+          <div class="portable-meta" id="portableMeta"></div>
+          <details class="portable-preview-wrap">
+            <summary>预览可移植包内容</summary>
+            <pre class="context-preview" id="portablePreview">（选择角色后加载）</pre>
+          </details>
+        </section>
+
+        <div class="grid-2">
+          <section class="panel">
+            <h3><span>记忆库</span></h3>
+            <div class="toolbar">
+              <input type="search" id="searchQ" placeholder="搜索记忆内容…" />
+              <select id="filterCategory"></select>
+              <select id="filterPlatform"></select>
+            </div>
+            <div class="checkbox-row" style="margin-bottom:10px">
+              <label><input type="checkbox" id="filterPinned" /> 仅置顶</label>
+              <label><input type="checkbox" id="filterActive" /> 仅启用</label>
+            </div>
+            <div class="memory-list" id="memoryList"></div>
+          </section>
+
+          <div>
+            <section class="panel">
+              <h3>人设速览</h3>
+              <div class="persona-box" id="personaPreview"></div>
+              <div class="divider"></div>
+              <div class="hint">说话风格</div>
+              <div class="persona-box" id="stylePreview"></div>
+            </section>
+
+            <!-- 辅助：网页粘贴上下文 -->
+            <section class="panel collapsible-panel">
+              <h3>
+                <span>辅助 · 生成粘贴上下文</span>
+                <button class="btn btn-sm btn-primary" id="btnCopyCtx">复制</button>
+              </h3>
+              <p class="hint">可选：把记忆编译成提示词，粘贴进网页 AI。主路径仍是下载本地文件。</p>
+              <div class="platform-tabs" id="platformTabs"></div>
+              <div class="workflow-body" id="workflowBody"></div>
+              <div class="form-row" style="margin-bottom:10px;margin-top:10px">
+                <label class="field">格式
+                  <select id="ctxFormat"></select>
+                </label>
+                <label class="field">最大字符
+                  <input type="number" id="ctxMaxChars" value="6000" min="500" max="50000" step="500" />
+                </label>
+              </div>
+              <div class="form-row" style="margin-bottom:10px">
+                <label class="field">最低重要度
+                  <select id="ctxMinImp"></select>
+                </label>
+                <label class="field" style="justify-content:flex-end">
+                  <span>&nbsp;</span>
+                  <span class="checkbox-row">
+                    <label><input type="checkbox" id="ctxPersona" checked /> 包含人设</label>
+                  </span>
+                </label>
+              </div>
+              <button class="btn" id="btnGenCtx" style="width:100%;margin-bottom:10px">重新生成</button>
+              <div class="context-meta" id="contextMeta"></div>
+              <pre class="context-preview" id="contextPreview">（选择角色后自动生成）</pre>
+            </section>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- character modal -->
+  <div class="modal-backdrop" id="charModal">
+    <div class="modal">
+      <h3 id="charModalTitle">新建角色</h3>
+      <div class="form-grid">
+        <div class="form-row">
+          <label class="field">内部名（唯一，英文/拼音）
+            <input type="text" id="charName" placeholder="linxia" />
+          </label>
+          <label class="field">显示名
+            <input type="text" id="charDisplayName" placeholder="林夏" />
+          </label>
+        </div>
+        <div class="form-row">
+          <label class="field">头像 Emoji
+            <input type="text" id="charEmoji" value="💖" />
+          </label>
+          <label class="field">关系阶段
+            <input type="text" id="charStage" value="初识" placeholder="初识 / 暧昧 / 热恋…" />
+          </label>
+        </div>
+        <label class="field">人设 / Persona
+          <textarea id="charPersona" placeholder="性格、背景、外貌…"></textarea>
+        </label>
+        <label class="field">说话风格
+          <textarea id="charStyle" placeholder="语气、用词习惯…"></textarea>
+        </label>
+        <label class="field">备注
+          <textarea id="charNotes" rows="2"></textarea>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" data-close="charModal">取消</button>
+        <button class="btn btn-primary" id="btnSaveChar">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- memory modal -->
+  <div class="modal-backdrop" id="memModal">
+    <div class="modal">
+      <h3 id="memModalTitle">添加记忆</h3>
+      <div class="form-grid">
+        <label class="field">内容
+          <textarea id="memContent" placeholder="例如：用户喜欢不加糖的美式咖啡"></textarea>
+        </label>
+        <div class="form-row">
+          <label class="field">分类
+            <select id="memCategory"></select>
+          </label>
+          <label class="field">重要度
+            <select id="memImportance"></select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label class="field">来源平台
+            <select id="memPlatform"></select>
+          </label>
+          <label class="field">标签（逗号分隔）
+            <input type="text" id="memTags" placeholder="饮食, 工作" />
+          </label>
+        </div>
+        <label class="checkbox-row">
+          <label><input type="checkbox" id="memPinned" /> 置顶（优先保留）</label>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" data-close="memModal">取消</button>
+        <button class="btn btn-primary" id="btnSaveMem">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- import modal -->
+  <div class="modal-backdrop" id="importModal">
+    <div class="modal wide">
+      <h3>从对话文本提取记忆</h3>
+      <p class="hint">从任意 AI 对话中复制文本 → 提取候选 → 写入当前角色。之后请「下载到本地」以便换平台恢复。</p>
+      <div class="form-grid">
+        <label class="field">来源平台
+          <select id="importPlatform"></select>
+        </label>
+        <label class="field">对话文本
+          <textarea id="importText" style="min-height:140px" placeholder="粘贴对话文本…"></textarea>
+        </label>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;margin-top:10px">
+        <button class="btn" id="btnSuggest">提取建议</button>
+      </div>
+      <div class="suggest-list" id="suggestList"></div>
+      <div class="modal-actions">
+        <button class="btn" data-close="importModal">取消</button>
+        <button class="btn btn-primary" id="btnConfirmImport">导入选中</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- format spec modal -->
+  <div class="modal-backdrop" id="specModal">
+    <div class="modal wide">
+      <h3>可移植格式说明</h3>
+      <div id="specBody" class="spec-body hint"></div>
+      <pre class="context-preview" id="specExample" style="max-height:280px"></pre>
+      <div class="modal-actions">
+        <button class="btn btn-primary" data-close="specModal">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toasts"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
