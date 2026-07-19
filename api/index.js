@@ -2,14 +2,14 @@ const { ensureDb } = require('../dist/db');
 const appModule = require('../dist/app');
 const app = appModule.default || appModule;
 
-// Graceful DB init — start immediately but don't block
-let dbReady = false;
-ensureDb().then(() => { dbReady = true; }).catch(() => { dbReady = true; });
+// Initialize DB before handling any request
+const initPromise = ensureDb().catch(err => {
+  console.error('[api] DB init failed:', err.message);
+});
 
-// Middleware to wait for DB initialization
+// Block all requests until DB is initialized
 app.use((req, res, next) => {
-  if (dbReady) return next();
-  ensureDb().then(() => { dbReady = true; next(); }).catch(() => { dbReady = true; next(); });
+  initPromise.then(() => next()).catch(() => next());
 });
 
 module.exports = app;
