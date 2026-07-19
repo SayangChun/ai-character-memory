@@ -2,19 +2,13 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "app/static/**",
-          "prisma/schema-base.db"
-        ]
-      }
+      "src": "api/index.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index.ts" },
-    { "src": "/static/(.*)", "dest": "/api/index.ts" },
-    { "src": "/(.*)", "dest": "/api/index.ts" }
+    { "src": "/api/(.*)", "dest": "api/index.js" },
+    { "src": "/static/(.*)", "dest": "api/index.js" },
+    { "src": "/(.*)", "dest": "api/index.js" }
   ]
 }

@@ -10,7 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "build": "tsc",
-    "vercel-build": "npx prisma generate",
+    "vercel-build": "npx prisma generate && npx tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
