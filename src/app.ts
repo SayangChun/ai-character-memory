@@ -24,8 +24,18 @@ app.use((_req, res, next) => {
 
 app.use('/api', routes);
 
+// HTML 引用 /static/style.css、/static/app.js，必须挂在 /static 前缀下
+// （若挂在 /，请求会变成找 app/static/static/*，最终被 SPA 回退成 index.html，
+//  Vercel 上就会出现“只有文字、没有样式/背景”）
 const STATIC_DIR = path.resolve(__dirname, '../app/static');
-app.use('/', express.static(STATIC_DIR));
+app.use('/static', express.static(STATIC_DIR, {
+  fallthrough: false,
+  index: false,
+}));
+
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(STATIC_DIR, 'index.html'));
+});
 
 app.use((_req, res) => {
   res.sendFile(path.join(STATIC_DIR, 'index.html'));
