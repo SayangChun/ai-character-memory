@@ -2,11 +2,25 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import routes from './routes';
+import { ensureDb } from './db';
 
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+let dbReady = false;
+
+ensureDb()
+  .then(() => { dbReady = true; console.log('[app] DB ready'); })
+  .catch(err => { console.error('[app] DB init error:', err.message); dbReady = true; });
+
+app.use((_req, res, next) => {
+  if (dbReady) return next();
+  ensureDb()
+    .then(() => { dbReady = true; next(); })
+    .catch(err => { dbReady = true; res.status(500).json({ detail: err.message }); });
+});
 
 app.use('/api', routes);
 
