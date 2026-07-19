@@ -16,7 +16,7 @@ function initializeDbIfNeeded(): void {
 
   if (fs.existsSync(dbPath)) return;
 
-  const schemaBase = path.resolve(process.cwd(), 'prisma', 'schema-base.db');
+  const schemaBase = path.resolve(process.cwd(), 'dist', 'schema-base.db');
   if (fs.existsSync(schemaBase)) {
     const dir = path.dirname(dbPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
