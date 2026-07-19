@@ -1,23 +1,54 @@
 import { PrismaClient } from '@prisma/client';
+import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
 export const prisma = new PrismaClient();
 
+function pushSchema(): boolean {
+  try {
+    execSync('npx prisma db push --skip-generate --accept-data-loss', {
+      cwd: process.cwd(),
+      stdio: 'pipe',
+      env: { ...process.env },
+      timeout: 30000,
+    });
+    return true;
+  } catch (err) {
+    console.warn('[db] schema push failed:', (err as Error).message);
+    return false;
+  }
+}
+
+function copySchemaBase(dbPath: string): boolean {
+  const schemaBase = path.resolve(process.cwd(), 'prisma', 'schema-base.db');
+  if (!fs.existsSync(schemaBase)) {
+    console.warn('[db] schema-base.db not found at', schemaBase);
+    return false;
+  }
+  const dir = path.dirname(dbPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(schemaBase, dbPath);
+  console.log('[db] database initialized from schema-base.db →', dbPath);
+  return true;
+}
+
 function initializeDbIfNeeded(): void {
   const url = process.env.DATABASE_URL || 'file:./data/memory.db';
   const match = url.match(/^file:(.+)$/);
   if (!match) return;
+
   let dbPath = match[1];
   if (!path.isAbsolute(dbPath)) {
     dbPath = path.resolve(process.cwd(), dbPath);
   }
+
   if (fs.existsSync(dbPath)) return;
-  const schemaBase = path.resolve(process.cwd(), 'prisma', 'schema-base.db');
-  if (!fs.existsSync(schemaBase)) return;
+
+  if (copySchemaBase(dbPath)) return;
+
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.copyFileSync(schemaBase, dbPath);
 }
 
 async function normalizeTableDatetimes(table: string, columns: string[]) {
@@ -42,6 +73,7 @@ async function normalizeTableDatetimes(table: string, columns: string[]) {
 
 export async function ensureDb(): Promise<void> {
   initializeDbIfNeeded();
+  pushSchema();
   try {
     await normalizeTableDatetimes('characters', ['created_at', 'updated_at']);
     await normalizeTableDatetimes('memories', [
