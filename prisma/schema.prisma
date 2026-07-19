@@ -4,14 +4,14 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:../data/memory.db"
+  url      = env("DATABASE_URL")
 }
 
 model Character {
   id                 Int          @id @default(autoincrement())
   name               String       @unique
   display_name       String
-  avatar_emoji       String       @default("💖")
+  avatar_emoji       String       @default("")
   persona            String       @default("")
   speaking_style     String       @default("")
   relationship_stage String       @default("初识")

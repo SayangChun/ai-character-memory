@@ -27,7 +27,7 @@ const CATEGORY_ORDER = [
   'other',
 ];
 
-type ContextFormat = 'universal' | 'system_prompt' | 'chatgpt' | 'claude' | 'gemini' | 'compact' | 'json';
+type ContextFormat = 'universal' | 'system_prompt' | 'compact' | 'json';
 
 function sortMemories(memories: Memory[], pinnedFirst: boolean): Memory[] {
   return [...memories].sort((a, b) => {
@@ -66,13 +66,12 @@ function filterMemories(
 
 function memoryLine(m: Memory, compact: boolean = false): string {
   const tags = tagsFromJson(m.tags);
-  const pin = m.is_pinned ? '📌 ' : '';
+  const pin = m.is_pinned ? '[置顶] ' : '';
   if (compact) {
     return `- ${pin}${m.content}`;
   }
   const tagStr = tags.length > 0 ? ` [${tags.join(', ')}]` : '';
-  const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
-  return `- ${pin}[${stars}] ${m.content}${tagStr}`;
+  return `- ${pin}[重要度${m.importance}] ${m.content}${tagStr}`;
 }
 
 export function buildContext(
@@ -138,7 +137,6 @@ function buildJson(character: Character, memories: Memory[], includePersona: boo
       importance: m.importance,
       pinned: m.is_pinned,
       tags: tagsFromJson(m.tags),
-      source: m.source_platform,
     })),
   };
 
@@ -158,22 +156,14 @@ function buildText(
   const { fmt, maxChars, includePersona } = options;
   const headerParts: string[] = [];
 
-  if (fmt === 'system_prompt' || fmt === 'claude') {
+  if (fmt === 'system_prompt') {
     headerParts.push(`你正在扮演角色「${character.display_name}」。请始终保持人设一致，并严格遵守下列记忆。`);
-  } else if (fmt === 'chatgpt') {
-    headerParts.push(
-      `# Custom Instructions / Memory for ${character.display_name}\nUse the following persistent memory when roleplaying as ${character.display_name}.`
-    );
-  } else if (fmt === 'gemini') {
-    headerParts.push(
-      `## Role Memory: ${character.display_name}\nApply these facts consistently across the conversation.`
-    );
   } else if (fmt === 'compact') {
     headerParts.push(`[角色:${character.display_name}|关系:${character.relationship_stage}]`);
   } else {
     headerParts.push(`# 角色记忆卡：${character.display_name}`);
     headerParts.push(`> 关系阶段：${character.relationship_stage}  |  内部名：${character.name}`);
-    headerParts.push(`以下记忆用于跨平台保持同一角色的连续性。请在对话中自然引用，不要生硬复读列表。`);
+    headerParts.push(`以下为该角色的持久记忆。请在对话中自然引用，不要生硬复读列表。`);
   }
 
   if (includePersona && character.persona && fmt !== 'compact') {
@@ -189,7 +179,7 @@ function buildText(
   const header = headerParts.join('\n').replace(/\s+$/, '') + '\n';
   let footer = '';
 
-  if (['universal', 'system_prompt', 'claude', 'chatgpt', 'gemini'].includes(fmt)) {
+  if (['universal', 'system_prompt'].includes(fmt)) {
     footer =
       '\n---\n使用规则：\n1. 优先遵守「禁忌雷区」与置顶记忆。\n2. 称呼与关系阶段需与记忆一致。\n3. 不要声称记得未列出的事实。\n4. 记忆有冲突时，以更高重要度 / 置顶为准。\n';
   }

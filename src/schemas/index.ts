@@ -21,23 +21,12 @@ export const MemoryCategorySchema = z.enum([
   'other',
 ]);
 
-export const PlatformSchema = z.enum([
-  'manual',
-  'chatgpt',
-  'claude',
-  'gemini',
-  'character_ai',
-  'grok',
-  'deepseek',
-  'other',
-]);
+/** Source of a memory entry — no third-party platform list. */
+export const PlatformSchema = z.enum(['manual', 'other']).or(z.string().min(1).max(40));
 
 export const ContextFormatSchema = z.enum([
   'universal',
   'system_prompt',
-  'chatgpt',
-  'claude',
-  'gemini',
   'compact',
   'json',
 ]);
@@ -45,7 +34,7 @@ export const ContextFormatSchema = z.enum([
 export const CharacterCreateSchema = z.object({
   name: z.string().min(1).max(120),
   display_name: z.string().min(1).max(120),
-  avatar_emoji: z.string().default('💖'),
+  avatar_emoji: z.string().default(''),
   persona: z.string().default(''),
   speaking_style: z.string().default(''),
   relationship_stage: z.string().default('初识'),

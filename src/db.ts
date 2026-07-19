@@ -1,16 +1,27 @@
 import { PrismaClient } from '@prisma/client';
+import path from 'path';
+import fs from 'fs';
 
 export const prisma = new PrismaClient();
 
-/**
- * Normalize legacy datetime text (e.g. from SQLAlchemy: "2026-07-18 06:39:59.862571")
- * into ISO-8601 that Prisma's SQLite engine can parse.
- * Without this, findMany on characters/memories fails with:
- * "Inconsistent column data: Conversion failed: input contains invalid characters"
- */
+function initializeDbIfNeeded(): void {
+  const url = process.env.DATABASE_URL || 'file:./data/memory.db';
+  const match = url.match(/^file:(.+)$/);
+  if (!match) return;
+  let dbPath = match[1];
+  if (!path.isAbsolute(dbPath)) {
+    dbPath = path.resolve(process.cwd(), dbPath);
+  }
+  if (fs.existsSync(dbPath)) return;
+  const schemaBase = path.resolve(process.cwd(), 'prisma', 'schema-base.db');
+  if (!fs.existsSync(schemaBase)) return;
+  const dir = path.dirname(dbPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(schemaBase, dbPath);
+}
+
 async function normalizeTableDatetimes(table: string, columns: string[]) {
   for (const col of columns) {
-    // Space-separated local-style timestamps → ISO with T and Z
     await prisma.$executeRawUnsafe(`
       UPDATE ${table}
       SET ${col} = replace(substr(${col}, 1, 19), ' ', 'T') || 'Z'
@@ -18,7 +29,6 @@ async function normalizeTableDatetimes(table: string, columns: string[]) {
         AND ${col} LIKE '____-__-__ __:__:__%'
         AND ${col} NOT LIKE '%T%'
     `);
-    // ISO without timezone suffix
     await prisma.$executeRawUnsafe(`
       UPDATE ${table}
       SET ${col} = substr(${col}, 1, 19) || 'Z'
@@ -31,6 +41,7 @@ async function normalizeTableDatetimes(table: string, columns: string[]) {
 }
 
 export async function ensureDb(): Promise<void> {
+  initializeDbIfNeeded();
   try {
     await normalizeTableDatetimes('characters', ['created_at', 'updated_at']);
     await normalizeTableDatetimes('memories', [

@@ -1,24 +1,5 @@
-import express from 'express';
-import cors from 'cors';
-import path from 'path';
-import routes from './routes';
+import app from './app';
 import { ensureDb } from './db';
-
-const app = express();
-
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-
-app.use('/api', routes);
-
-// Serve static files from app/static
-const STATIC_DIR = path.resolve(__dirname, '../app/static');
-app.use('/static', express.static(STATIC_DIR));
-
-// Fallback to index.html
-app.use((_req, res) => {
-  res.sendFile(path.join(STATIC_DIR, 'index.html'));
-});
 
 const PORT = parseInt(process.env.PORT || process.env.MEMORY_PORT || '8765', 10);
 const HOST = process.env.HOST || process.env.MEMORY_HOST || '127.0.0.1';

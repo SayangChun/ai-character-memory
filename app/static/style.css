@@ -546,13 +546,30 @@ a {
 }
 
 .char-emoji {
-  font-size: 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 700;
   width: 36px;
   height: 36px;
   display: grid;
   place-items: center;
   background: var(--bg-card);
   border-radius: 10px;
+  color: var(--accent, #ff6b9d);
+  flex-shrink: 0;
+}
+
+.char-title-letter {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6em;
+  height: 1.6em;
+  font-size: 0.85em;
+  font-weight: 700;
+  border-radius: 8px;
+  background: var(--accent-soft, rgba(255, 107, 157, 0.15));
+  color: var(--accent, #ff6b9d);
+  vertical-align: middle;
+  margin-right: 4px;
 }
 
 .char-meta {
@@ -584,8 +601,17 @@ a {
 }
 
 .empty-state .big {
-  font-size: 3rem;
-  margin-bottom: 8px;
+  display: inline-grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 12px;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent, #ff6b9d);
+  background: var(--accent-soft, rgba(255, 107, 157, 0.15));
+  border-radius: 16px;
 }
 
 /* top bar */

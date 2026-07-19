@@ -12,6 +12,7 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+!prisma/schema-base.db
 
 # Node
 node_modules/

@@ -3,11 +3,16 @@ import { prisma } from '../db';
 import { buildContext } from '../services/context';
 import {
   buildPortablePackage,
+  buildAiMemoryPack,
   formatSpecPublic,
   suggestedFilename,
+  suggestedAiPackFilename,
   MIME_TYPE,
+  AI_PACK_MIME,
   FORMAT_ID,
   FORMAT_VERSION,
+  AI_PACK_FORMAT_ID,
+  AI_PACK_FORMAT_VERSION,
 } from '../services/portable';
 import { contentHash, tagsFromJson, tagsToJson } from '../services/utils';
 import { PLATFORMS } from '../services/platforms';
@@ -54,13 +59,14 @@ router.get('/health', (_req, res) => {
 router.get('/site', (_req, res) => {
   res.json({
     site_name: 'AI Character Memory',
-    site_tagline: '本地化角色记忆中枢',
+    site_tagline: '角色人设与记忆本地库',
     allow_register: false,
     version: '1.0.0',
     mode: 'web',
   });
 });
 
+/** Compatibility endpoint — no third-party platforms exposed. */
 router.get('/platforms', (_req, res) => {
   res.json(PLATFORMS);
 });
@@ -86,22 +92,12 @@ router.get('/stats', async (_req, res) => {
       return acc;
     }, {} as Record<string, number>);
 
-    const byPlatform = await prisma.memory.groupBy({
-      by: ['source_platform'],
-      _count: { id: true },
-    });
-    const platMap = byPlatform.reduce((acc, cur) => {
-      acc[cur.source_platform] = cur._count.id;
-      return acc;
-    }, {} as Record<string, number>);
-
     res.json({
       character_count: charCount,
       memory_count: memCount,
       active_memory_count: activeCount,
       pinned_memory_count: pinnedCount,
       by_category: catMap,
-      by_platform: platMap,
     });
   } catch (err: any) {
     res.status(500).json({ detail: err.message || '统计失败' });
@@ -140,7 +136,7 @@ router.post('/characters', async (req, res) => {
       data: {
         name: String(name).trim(),
         display_name: String(display_name).trim(),
-        avatar_emoji: avatar_emoji || '💖',
+        avatar_emoji: avatar_emoji || '',
         persona: persona || '',
         speaking_style: speaking_style || '',
         relationship_stage: relationship_stage || '初识',
@@ -389,20 +385,43 @@ router.post('/characters/:character_id/import/suggest', async (req, res) => {
 
   res.json({
     character_id,
-    source_platform: req.body?.source_platform || 'other',
     suggestions,
     count: suggestions.length,
   });
 });
 
-// Portable JSON + download
+// Portable packages
+// - kind=ai (default): Markdown memory pack → send to any new AI (no website)
+// - kind=json: ACM structured backup → re-import into this site
+
+function attachmentHeaders(res: Response, filename: string, contentType: string) {
+  const encoded = encodeURIComponent(filename);
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${filename.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encoded}`
+  );
+  res.setHeader('Content-Type', contentType);
+}
+
 router.get('/characters/:character_id/portable', async (req, res) => {
   const character_id = parseId(req.params.character_id);
   const char = await prisma.character.findUnique({ where: { id: character_id } });
   if (!char) return res.status(404).json({ detail: '角色不存在' });
   const memories = await prisma.memory.findMany({ where: { character_id } });
   const sessions = await prisma.sessionLog.findMany({ where: { character_id } });
-  res.json(buildPortablePackage(char, memories, sessions));
+
+  const kind = String(req.query.kind || 'ai').toLowerCase();
+  if (kind === 'json' || kind === 'acm' || kind === 'backup') {
+    return res.json(buildPortablePackage(char, memories, sessions));
+  }
+
+  const includeSessions = String(req.query.include_sessions || '') === '1';
+  const pack = buildAiMemoryPack(char, memories, sessions, { includeSessions });
+  res.json({
+    ...pack.meta,
+    markdown: pack.markdown,
+    backup_json_url: `/api/characters/${character_id}/portable?kind=json`,
+  });
 });
 
 router.get('/characters/:character_id/portable/download', async (req, res) => {
@@ -412,18 +431,28 @@ router.get('/characters/:character_id/portable/download', async (req, res) => {
   const memories = await prisma.memory.findMany({ where: { character_id } });
   const sessions = await prisma.sessionLog.findMany({ where: { character_id } });
 
-  const pkg = buildPortablePackage(char, memories, sessions);
-  const filename = suggestedFilename(char.name);
-  // RFC 5987 for non-ascii names
-  const encoded = encodeURIComponent(filename);
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${filename.replace(/[^\x20-\x7E]/g, '_')}"; filename*=UTF-8''${encoded}`
-  );
-  res.setHeader('Content-Type', MIME_TYPE);
-  res.setHeader('X-ACM-Format', FORMAT_ID);
-  res.setHeader('X-ACM-Format-Version', FORMAT_VERSION);
-  res.json(pkg);
+  const kind = String(req.query.kind || 'ai').toLowerCase();
+
+  if (kind === 'json' || kind === 'acm' || kind === 'backup') {
+    const pkg = buildPortablePackage(char, memories, sessions);
+    const filename = suggestedFilename(char.name);
+    attachmentHeaders(res, filename, MIME_TYPE);
+    res.setHeader('X-ACM-Format', FORMAT_ID);
+    res.setHeader('X-ACM-Format-Version', FORMAT_VERSION);
+    return res.json(pkg);
+  }
+
+  const includeSessions = String(req.query.include_sessions || '') === '1';
+  const includeAppendix = String(req.query.include_appendix || '') === '1';
+  const pack = buildAiMemoryPack(char, memories, sessions, {
+    includeSessions,
+    includeMachineAppendix: includeAppendix,
+  });
+  const filename = suggestedAiPackFilename(char.name);
+  attachmentHeaders(res, filename, AI_PACK_MIME);
+  res.setHeader('X-Memory-Pack-Format', AI_PACK_FORMAT_ID);
+  res.setHeader('X-Memory-Pack-Version', AI_PACK_FORMAT_VERSION);
+  res.send(pack.markdown);
 });
 
 // Portable import
@@ -462,7 +491,7 @@ router.post('/portable/import', async (req, res) => {
         data: {
           name,
           display_name: ch.display_name,
-          avatar_emoji: ch.avatar_emoji || '💖',
+          avatar_emoji: ch.avatar_emoji || '',
           persona: ch.persona || '',
           speaking_style: ch.speaking_style || '',
           relationship_stage: ch.relationship_stage || '初识',
@@ -515,7 +544,7 @@ router.post('/portable/import', async (req, res) => {
           data: {
             name: String(ch.name),
             display_name: ch.display_name,
-            avatar_emoji: ch.avatar_emoji || '💖',
+            avatar_emoji: ch.avatar_emoji || '',
             persona: ch.persona || '',
             speaking_style: ch.speaking_style || '',
             relationship_stage: ch.relationship_stage || '初识',
@@ -639,7 +668,7 @@ router.post('/demo/seed', async (_req, res) => {
       data: {
         name,
         display_name: '林夏（演示）',
-        avatar_emoji: '🌸',
+        avatar_emoji: '',
         persona:
           '温柔体贴的邻家女孩，偶尔会害羞。喜欢听对方讲今天发生的事，会认真记住细节。',
         speaking_style: '口语化、软糯，偶尔用小语气词，不会过于夸张。',

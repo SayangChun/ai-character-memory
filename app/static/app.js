@@ -11,31 +11,15 @@ const CATEGORIES = {
   other: "其他",
 };
 
-const PLATFORMS = {
-  manual: "手动录入",
-  chatgpt: "ChatGPT 网页",
-  claude: "Claude 网页",
-  gemini: "Gemini 网页",
-  character_ai: "Character.AI",
-  grok: "Grok 网页",
-  deepseek: "DeepSeek 网页",
-  other: "其他网页 AI",
-};
-
 const FORMATS = {
   universal: "通用记忆卡",
   system_prompt: "系统提示词",
-  chatgpt: "ChatGPT 格式",
-  claude: "Claude 格式",
-  gemini: "Gemini 格式",
   compact: "紧凑精简",
   json: "JSON",
 };
 
 const state = {
   site: null,
-  platforms: [],
-  selectedPlatformId: "chatgpt",
   characters: [],
   currentId: null,
   memories: [],
@@ -79,8 +63,14 @@ function toast(message, type = "info") {
   setTimeout(() => el.remove(), 2800);
 }
 
-function stars(n) {
-  return "★".repeat(n) + "☆".repeat(5 - n);
+function importanceLabel(n) {
+  return `重要度 ${n}`;
+}
+
+/** First character of display name; never falls back to emoji. */
+function avatarLetter(displayName, name) {
+  const s = String(displayName || name || "?").trim();
+  return s ? s.charAt(0) : "?";
 }
 
 function escapeHtml(s) {
@@ -107,8 +97,6 @@ function fillSelect(el, map, includeAll = false) {
   }
 }
 
-
-
 function openModal(id) {
   document.getElementById(id).classList.add("open");
 }
@@ -127,23 +115,6 @@ function debounce(fn, ms) {
 async function enterApp() {
   bindAppEvents();
   initSelects();
-  try {
-    await loadPlatforms();
-    renderPlatformTabs();
-  } catch (e) {
-    console.error("loadPlatforms failed", e);
-    state.platforms = [
-      {
-        id: "chatgpt",
-        name: "ChatGPT",
-        default_format: "chatgpt",
-        paste_target: "对话开头",
-        url: null,
-      },
-    ];
-    renderPlatformTabs();
-    toast("平台列表加载失败，已使用默认配置", "error");
-  }
   try {
     await loadStats();
   } catch (e) {
@@ -166,89 +137,6 @@ async function enterApp() {
     document.getElementById("emptyMain").style.display = "block";
     document.getElementById("mainContent").style.display = "none";
     toast(e.message || "角色加载失败", "error");
-  }
-}
-
-// ── platforms workflow ───────────────────────────────────
-
-async function loadPlatforms() {
-  state.platforms = await api("/api/platforms");
-  const logos = document.getElementById("platformLogos");
-  if (logos) {
-    logos.innerHTML = state.platforms
-      .filter((p) => p.id !== "other")
-      .map((p) => `<span class="plat-pill">${escapeHtml(p.name)}</span>`)
-      .join("");
-  }
-}
-
-function renderPlatformTabs() {
-  const tabs = document.getElementById("platformTabs");
-  if (!tabs) return;
-  tabs.innerHTML = state.platforms
-    .map(
-      (p) => `
-    <button class="plat-tab ${p.id === state.selectedPlatformId ? "active" : ""}"
-      data-id="${p.id}">${escapeHtml(p.name)}</button>`
-    )
-    .join("");
-  tabs.querySelectorAll(".plat-tab").forEach((btn) => {
-    btn.onclick = async () => {
-      state.selectedPlatformId = btn.dataset.id;
-      renderPlatformTabs();
-      renderWorkflow();
-      const p = state.platforms.find((x) => x.id === state.selectedPlatformId);
-      if (p && document.getElementById("ctxFormat")) {
-        document.getElementById("ctxFormat").value = p.default_format;
-        if (state.currentId) await generateContext();
-      }
-    };
-  });
-  renderWorkflow();
-}
-
-function renderWorkflow() {
-  const p =
-    state.platforms.find((x) => x.id === state.selectedPlatformId) ||
-    state.platforms[0];
-  const body = document.getElementById("workflowBody");
-  if (!body) return;
-  if (!p) {
-    body.innerHTML = "";
-    return;
-  }
-  body.innerHTML = `
-    <div class="workflow-meta">
-      <div>
-        <strong>可选粘贴位置：</strong>${escapeHtml(p.paste_target || "对话开头")}
-      </div>
-      ${
-        p.url
-          ? `<a class="btn btn-sm" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">打开 ${escapeHtml(p.name)} ↗</a>`
-          : ""
-      }
-    </div>
-    <p class="hint tip-line">💡 主路径请使用上方「下载 .acm.json」；此处仅辅助网页粘贴。</p>
-    <div class="workflow-actions">
-      <button class="btn btn-sm btn-primary" id="btnWorkflowCopy">复制该平台格式上下文</button>
-      <button class="btn btn-sm" id="btnWorkflowImport">从对话提取记忆</button>
-    </div>
-  `;
-  const copyBtn = document.getElementById("btnWorkflowCopy");
-  if (copyBtn) {
-    copyBtn.onclick = async () => {
-      if (!state.currentId) {
-        toast("请先选择角色", "error");
-        return;
-      }
-      document.getElementById("ctxFormat").value = p.default_format;
-      await generateContext();
-      await copyContext();
-    };
-  }
-  const importBtn = document.getElementById("btnWorkflowImport");
-  if (importBtn) {
-    importBtn.onclick = () => openImportModal(p.id);
   }
 }
 
@@ -275,7 +163,7 @@ async function loadCharacters() {
     const btn = document.createElement("button");
     btn.className = `char-item ${c.id === state.currentId ? "active" : ""}`;
     btn.innerHTML = `
-      <div class="char-emoji">${escapeHtml(c.avatar_emoji || "💖")}</div>
+      <div class="char-emoji">${escapeHtml(avatarLetter(c.display_name, c.name))}</div>
       <div class="char-meta">
         <div class="name">${escapeHtml(c.display_name)}</div>
         <div class="sub">${escapeHtml(c.relationship_stage)} · ${c.memory_count} 条记忆</div>
@@ -292,12 +180,12 @@ async function selectCharacter(id) {
   document.getElementById("emptyMain").style.display = "none";
   document.getElementById("mainContent").style.display = "block";
   document.getElementById("charTitle").innerHTML = `
-    <span>${escapeHtml(c.avatar_emoji || "💖")}</span>
+    <span class="char-title-letter">${escapeHtml(avatarLetter(c.display_name, c.name))}</span>
     <span>${escapeHtml(c.display_name)}</span>
     <span class="badge pink">${escapeHtml(c.relationship_stage)}</span>
   `;
   document.getElementById("charSub").textContent =
-    `内部名: ${c.name} · 记忆 ${c.memory_count} · 可下载本地包换平台恢复`;
+    `内部名: ${c.name} · 记忆 ${c.memory_count} 条 · 可下载 .memory.md 发给新 AI`;
   document.getElementById("personaPreview").textContent =
     c.persona || "（未设置人设）";
   document.getElementById("stylePreview").textContent =
@@ -305,18 +193,15 @@ async function selectCharacter(id) {
   await loadMemories();
   await loadPortablePreview();
   await generateContext();
-  renderWorkflow();
 }
 
 async function loadMemories() {
   if (!state.currentId) return;
   const q = document.getElementById("searchQ").value.trim();
   const category = document.getElementById("filterCategory").value;
-  const platform = document.getElementById("filterPlatform").value;
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (category) params.set("category", category);
-  if (platform) params.set("platform", platform);
   if (document.getElementById("filterPinned").checked)
     params.set("pinned_only", "true");
   if (document.getElementById("filterActive").checked)
@@ -330,7 +215,7 @@ async function loadMemories() {
 function renderMemories() {
   const list = document.getElementById("memoryList");
   if (!state.memories.length) {
-    list.innerHTML = `<div class="hint">暂无记忆。添加第一条，或从网页对话导入。</div>`;
+    list.innerHTML = `<div class="hint">暂无记忆。添加第一条，或从对话文本提取。</div>`;
     return;
   }
   list.innerHTML = state.memories
@@ -341,10 +226,9 @@ function renderMemories() {
       return `
       <div class="memory-card ${m.is_pinned ? "pinned" : ""} ${m.is_active ? "" : "inactive"}">
         <div class="memory-head">
-          ${m.is_pinned ? '<span class="tag">📌 置顶</span>' : ""}
+          ${m.is_pinned ? '<span class="tag">置顶</span>' : ""}
           <span class="tag cat-${m.category}">${CATEGORIES[m.category] || m.category}</span>
-          <span class="tag">${PLATFORMS[m.source_platform] || m.source_platform}</span>
-          <span class="stars">${stars(m.importance)}</span>
+          <span class="stars">${importanceLabel(m.importance)}</span>
           ${tags}
         </div>
         <div class="memory-content">${escapeHtml(m.content)}</div>
@@ -372,7 +256,7 @@ function openCharModal(edit = false) {
   document.getElementById("charName").value = c ? c.name : "";
   document.getElementById("charName").disabled = !!edit;
   document.getElementById("charDisplayName").value = c ? c.display_name : "";
-  document.getElementById("charEmoji").value = c ? c.avatar_emoji : "💖";
+  document.getElementById("charEmoji").value = "";
   document.getElementById("charStage").value = c ? c.relationship_stage : "初识";
   document.getElementById("charPersona").value = c ? c.persona : "";
   document.getElementById("charStyle").value = c ? c.speaking_style : "";
@@ -386,7 +270,7 @@ async function saveCharacter() {
   const body = {
     name: document.getElementById("charName").value.trim(),
     display_name: document.getElementById("charDisplayName").value.trim(),
-    avatar_emoji: document.getElementById("charEmoji").value.trim() || "💖",
+    avatar_emoji: "",
     relationship_stage:
       document.getElementById("charStage").value.trim() || "初识",
     persona: document.getElementById("charPersona").value,
@@ -445,7 +329,6 @@ function openAddMemory() {
   document.getElementById("memContent").value = "";
   document.getElementById("memCategory").value = "fact";
   document.getElementById("memImportance").value = "3";
-  document.getElementById("memPlatform").value = "manual";
   document.getElementById("memTags").value = "";
   document.getElementById("memPinned").checked = false;
   openModal("memModal");
@@ -459,7 +342,6 @@ function openEditMemory(id) {
   document.getElementById("memContent").value = m.content;
   document.getElementById("memCategory").value = m.category;
   document.getElementById("memImportance").value = String(m.importance);
-  document.getElementById("memPlatform").value = m.source_platform;
   document.getElementById("memTags").value = (m.tags || []).join(", ");
   document.getElementById("memPinned").checked = m.is_pinned;
   openModal("memModal");
@@ -480,7 +362,7 @@ async function saveMemory() {
     content,
     category: document.getElementById("memCategory").value,
     importance: Number(document.getElementById("memImportance").value),
-    source_platform: document.getElementById("memPlatform").value,
+    source_platform: "manual",
     tags,
     is_pinned: document.getElementById("memPinned").checked,
   };
@@ -573,7 +455,7 @@ async function generateContext() {
       <span>${data.memory_count} 条记忆</span>
       <span>${data.char_count} 字符</span>
       <span>~${data.estimated_tokens} tokens</span>
-      <span>${data.truncated ? "⚠️ 已截断" : "✓ 完整"}</span>
+      <span>${data.truncated ? "已截断" : "完整"}</span>
     `;
   } catch (e) {
     toast(e.message, "error");
@@ -584,7 +466,7 @@ async function copyContext() {
   const text = document.getElementById("contextPreview").textContent;
   try {
     await navigator.clipboard.writeText(text);
-    toast("已复制上下文（辅助粘贴）；换平台请优先下载本地包", "success");
+    toast("已复制记忆卡", "success");
   } catch (_) {
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -596,7 +478,7 @@ async function copyContext() {
   }
 }
 
-// ── portable package（主路径）────────────────────────────
+// ── portable package (AI-ready .memory.md is primary) ────
 
 async function loadPortablePreview() {
   if (!state.currentId) return;
@@ -605,18 +487,17 @@ async function loadPortablePreview() {
   try {
     const data = await api(`/api/characters/${state.currentId}/portable`);
     state.portablePackage = data;
-    const m = data.meta || {};
     if (meta) {
       meta.innerHTML = `
-        <span class="stat-chip">格式 ${escapeHtml(data.format || "ai-character-memory")}</span>
-        <span class="stat-chip">v${escapeHtml(String(data.format_version || "1.0"))}</span>
-        <span class="stat-chip">记忆 ${m.memory_count ?? (data.memories || []).length}</span>
-        <span class="stat-chip">置顶 ${m.pinned_memory_count ?? 0}</span>
-        <span class="stat-chip">会话 ${m.session_count ?? 0}</span>
+        <span class="stat-chip">格式 ${escapeHtml(data.format || "ai-memory-pack")}</span>
+        <span class="stat-chip">v${escapeHtml(String(data.format_version || "2.0"))}</span>
+        <span class="stat-chip">记忆 ${data.memory_count ?? 0}</span>
+        <span class="stat-chip">置顶 ${data.pinned_memory_count ?? 0}</span>
+        <span class="stat-chip">${data.char_count ?? 0} 字符</span>
       `;
     }
     if (preview) {
-      preview.textContent = JSON.stringify(data, null, 2);
+      preview.textContent = data.markdown || "（空）";
     }
   } catch (e) {
     if (preview) preview.textContent = `加载失败：${e.message}`;
@@ -629,6 +510,15 @@ function downloadBlob(filename, blob) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function filenameFromResponse(res, fallback) {
+  const cd = res.headers.get("Content-Disposition") || "";
+  const mStar = cd.match(/filename\*=UTF-8''([^;]+)/i);
+  const mPlain = cd.match(/filename="?([^";]+)"?/i);
+  if (mStar) return decodeURIComponent(mStar[1]);
+  if (mPlain) return mPlain[1];
+  return fallback;
 }
 
 async function downloadPortablePackage() {
@@ -649,44 +539,69 @@ async function downloadPortablePackage() {
       } catch (_) {}
       throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
     }
-    const blob = await res.blob();
-    let filename = `character.acm.json`;
-    const cd = res.headers.get("Content-Disposition") || "";
-    const mStar = cd.match(/filename\*=UTF-8''([^;]+)/i);
-    const mPlain = cd.match(/filename="?([^";]+)"?/i);
-    if (mStar) {
-      filename = decodeURIComponent(mStar[1]);
-    } else if (mPlain) {
-      filename = mPlain[1];
-    }
-    downloadBlob(filename, blob);
-    toast("已下载到本地。换平台时上传此文件即可恢复记忆", "success");
+    const text = await res.text();
+    const filename = filenameFromResponse(res, "character.memory.md");
+    downloadBlob(
+      filename,
+      new Blob([text], { type: "text/markdown;charset=utf-8" })
+    );
+    toast("已下载记忆包（发给新 AI 用）", "success");
     await loadPortablePreview();
   } catch (e) {
-    // 回退：用 JSON API 生成文件
     try {
       const data = await api(`/api/characters/${state.currentId}/portable`);
-      const name = (data.character && data.character.name) || "character";
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: "application/json",
-      });
-      downloadBlob(`${name}.acm.json`, blob);
-      toast("已下载到本地（.acm.json）", "success");
+      const name = data.character_name || data.display_name || "character";
+      downloadBlob(
+        `${name}.memory.md`,
+        new Blob([data.markdown || ""], { type: "text/markdown;charset=utf-8" })
+      );
+      toast("已下载 .memory.md", "success");
     } catch (e2) {
       toast(e2.message || e.message, "error");
     }
   }
 }
 
-async function copyPortableJson() {
+async function downloadAcmBackup() {
+  if (!state.currentId) {
+    toast("请先选择角色", "error");
+    return;
+  }
+  try {
+    const res = await fetch(
+      `/api/characters/${state.currentId}/portable/download?kind=json`,
+      { credentials: "same-origin" }
+    );
+    if (!res.ok) {
+      let msg = res.statusText;
+      try {
+        const data = await res.json();
+        msg = data.detail || msg;
+      } catch (_) {}
+      throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    }
+    const data = await res.json();
+    const filename = filenameFromResponse(res, "character.acm.json");
+    downloadBlob(
+      filename,
+      new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    );
+    toast("已下载站内备份 .acm.json（仅用于重新导入本站）", "success");
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+async function copyPortableMarkdown() {
   if (!state.currentId) return;
   try {
     const data =
       state.portablePackage ||
       (await api(`/api/characters/${state.currentId}/portable`));
-    const text = JSON.stringify(data, null, 2);
+    const text = data.markdown || "";
+    if (!text) throw new Error("记忆包为空");
     await navigator.clipboard.writeText(text);
-    toast("可移植包 JSON 已复制", "success");
+    toast("记忆包全文已复制，可直接粘贴给新 AI", "success");
   } catch (e) {
     toast(e.message, "error");
   }
@@ -697,17 +612,30 @@ async function showPortableSpec() {
     const spec = await api("/api/portable/spec");
     const body = document.getElementById("specBody");
     const ex = document.getElementById("specExample");
+    const primary = spec.primary || spec;
+    const backup = spec.backup;
     body.innerHTML = `
-      <p><strong>${escapeHtml(spec.format)}</strong> v${escapeHtml(spec.format_version)}</p>
-      <p>${escapeHtml(spec.description || "")}</p>
+      <p><strong>${escapeHtml(primary.format || spec.format)}</strong>
+      v${escapeHtml(String(primary.format_version || spec.format_version || ""))}</p>
+      <p>${escapeHtml(primary.description || spec.description || "")}</p>
       <ol style="padding-left:1.2em;margin:10px 0">
-        ${(spec.workflow || []).map((s) => `<li>${escapeHtml(s)}</li>`).join("")}
+        ${(primary.workflow || spec.workflow || [])
+          .map((s) => `<li>${escapeHtml(s)}</li>`)
+          .join("")}
       </ol>
-      <p class="hint">文件扩展名：<code>${escapeHtml(spec.file_extension || ".acm.json")}</code>
-      · 角色主键：<code>character.name</code>
-      · 记忆去重：<code>content_hash</code></p>
+      <p class="hint">主文件：<code>${escapeHtml(primary.file_extension || ".memory.md")}</code>
+      · 用途：直接发给新 AI 恢复记忆（不经过本站）</p>
+      ${
+        backup
+          ? `<p class="hint">站内备份：<code>${escapeHtml(backup.file_extension || ".acm.json")}</code>
+          · ${escapeHtml(backup.description || "重新导入本站编辑")}</p>`
+          : ""
+      }
     `;
-    ex.textContent = JSON.stringify(spec.example_minimal || spec, null, 2);
+    ex.textContent =
+      primary.example_preview ||
+      spec.example_preview ||
+      JSON.stringify(spec.example_minimal || spec, null, 2);
     openModal("specModal");
   } catch (e) {
     toast(e.message, "error");
@@ -716,10 +644,8 @@ async function showPortableSpec() {
 
 // ── import / export ──────────────────────────────────────
 
-function openImportModal(platformId) {
+function openImportModal() {
   document.getElementById("importText").value = "";
-  document.getElementById("importPlatform").value =
-    platformId || state.selectedPlatformId || "other";
   document.getElementById("suggestList").innerHTML = "";
   state.suggestions = [];
   openModal("importModal");
@@ -728,7 +654,7 @@ function openImportModal(platformId) {
 async function runImportSuggest() {
   const text = document.getElementById("importText").value.trim();
   if (!text) {
-    toast("请粘贴网页对话文本", "error");
+    toast("请粘贴对话文本", "error");
     return;
   }
   try {
@@ -736,7 +662,7 @@ async function runImportSuggest() {
       method: "POST",
       body: JSON.stringify({
         text,
-        source_platform: document.getElementById("importPlatform").value,
+        source_platform: "manual",
       }),
     });
     state.suggestions = data.suggestions;
@@ -762,7 +688,7 @@ function renderSuggestions() {
         <div class="content">${escapeHtml(s.content)}</div>
         <div style="margin-top:4px">
           <span class="tag cat-${s.category}">${CATEGORIES[s.category] || s.category}</span>
-          <span class="stars">${stars(s.importance)}</span>
+          <span class="stars">${importanceLabel(s.importance)}</span>
         </div>
       </div>
       <span class="hint">#${i + 1}</span>
@@ -782,13 +708,12 @@ async function confirmImport() {
     toast("请至少选择一条", "error");
     return;
   }
-  const platform = document.getElementById("importPlatform").value;
   const memories = selected.map((s) => ({
     content: s.content,
     category: s.category,
     importance: s.importance,
     tags: s.tags || [],
-    source_platform: platform,
+    source_platform: "manual",
   }));
   try {
     const created = await api(
@@ -802,13 +727,13 @@ async function confirmImport() {
     await api(`/api/characters/${state.currentId}/sessions`, {
       method: "POST",
       body: JSON.stringify({
-        platform,
-        title: `网页导入 ${created.length} 条`,
-        summary: `从网页对话导入 ${created.length} 条`,
+        platform: "manual",
+        title: `对话提取 ${created.length} 条`,
+        summary: `从对话文本提取 ${created.length} 条记忆`,
         raw_excerpt: raw,
       }),
     });
-    toast(`成功导入 ${created.length} 条记忆（记得下载本地包）`, "success");
+    toast(`成功导入 ${created.length} 条记忆`, "success");
     closeModal("importModal");
     await loadStats();
     await loadCharacters();
@@ -865,17 +790,14 @@ async function seedDemo() {
 
 function initSelects() {
   fillSelect(document.getElementById("filterCategory"), CATEGORIES, true);
-  fillSelect(document.getElementById("filterPlatform"), PLATFORMS, true);
   fillSelect(document.getElementById("memCategory"), CATEGORIES);
-  fillSelect(document.getElementById("memPlatform"), PLATFORMS);
-  fillSelect(document.getElementById("importPlatform"), PLATFORMS);
   fillSelect(document.getElementById("ctxFormat"), FORMATS);
   document.getElementById("ctxFormat").value = "universal";
   document.getElementById("memImportance").innerHTML = [1, 2, 3, 4, 5]
-    .map((n) => `<option value="${n}">${stars(n)} (${n})</option>`)
+    .map((n) => `<option value="${n}">${importanceLabel(n)}</option>`)
     .join("");
   document.getElementById("ctxMinImp").innerHTML = [1, 2, 3, 4, 5]
-    .map((n) => `<option value="${n}">≥ ${n}</option>`)
+    .map((n) => `<option value="${n}">不低于 ${n}</option>`)
     .join("");
 }
 
@@ -892,12 +814,15 @@ function bindAppEvents() {
   document.getElementById("btnDownloadPortable").onclick = downloadPortablePackage;
   document.getElementById("btnDownloadPortableMain").onclick =
     downloadPortablePackage;
-  document.getElementById("btnCopyPortableJson").onclick = copyPortableJson;
+  const btnCopyMd = document.getElementById("btnCopyPortableMd");
+  if (btnCopyMd) btnCopyMd.onclick = copyPortableMarkdown;
+  const btnAcm = document.getElementById("btnDownloadAcmBackup");
+  if (btnAcm) btnAcm.onclick = downloadAcmBackup;
   document.getElementById("btnShowSpec").onclick = showPortableSpec;
   document.getElementById("btnCopyCtx").onclick = copyContext;
   document.getElementById("btnGenCtx").onclick = generateContext;
   document.getElementById("btnDemo").onclick = seedDemo;
-    document.getElementById("btnRefresh").onclick = async () => {
+  document.getElementById("btnRefresh").onclick = async () => {
     await loadStats();
     await loadCharacters();
     if (state.currentId) {
@@ -908,7 +833,6 @@ function bindAppEvents() {
   };
   document.getElementById("searchQ").oninput = debounce(loadMemories, 250);
   document.getElementById("filterCategory").onchange = loadMemories;
-  document.getElementById("filterPlatform").onchange = loadMemories;
   document.getElementById("filterPinned").onchange = loadMemories;
   document.getElementById("filterActive").onchange = loadMemories;
   document.getElementById("ctxFormat").onchange = generateContext;
