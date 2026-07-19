@@ -7,18 +7,14 @@
       "config": {
         "includeFiles": [
           "app/static/**",
-          "prisma/**",
-          "node_modules/.prisma/**"
+          "prisma/schema-base.db"
         ]
       }
     }
   ],
   "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.ts" },
     { "src": "/static/(.*)", "dest": "/api/index.ts" },
     { "src": "/(.*)", "dest": "/api/index.ts" }
-  ],
-  "env": {
-    "MEMORY_HOST": "0.0.0.0",
-    "MEMORY_PORT": "8765"
-  }
+  ]
 }
