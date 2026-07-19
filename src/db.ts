@@ -1,76 +1,75 @@
 import { PrismaClient } from '@prisma/client';
-import { execSync } from 'child_process';
-import path from 'path';
-import fs from 'fs';
 
 export const prisma = new PrismaClient();
 
-function schemaPush(): boolean {
-  try {
-    execSync('npx prisma db push --skip-generate --accept-data-loss', {
-      cwd: process.cwd(),
-      stdio: 'pipe',
-      env: { ...process.env },
-      timeout: 30000,
-    });
-    console.log('[db] schema push succeeded');
-    return true;
-  } catch (err) {
-    console.warn('[db] schema push failed:', (err as Error).message);
-    return false;
-  }
-}
+const CREATE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS characters (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  name              TEXT NOT NULL UNIQUE,
+  display_name      TEXT NOT NULL,
+  avatar_emoji      TEXT DEFAULT '💖',
+  persona           TEXT DEFAULT '',
+  speaking_style    TEXT DEFAULT '',
+  relationship_stage TEXT DEFAULT '初识',
+  notes             TEXT DEFAULT '',
+  created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
-function tryCopySchemaBase(dbPath: string): boolean {
-  const candidates = [
-    path.resolve(process.cwd(), 'dist', 'schema-base.db'),
-    path.resolve(process.cwd(), 'prisma', 'schema-base.db'),
-  ];
-  for (const src of candidates) {
-    if (fs.existsSync(src)) {
-      const dir = path.dirname(dbPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.copyFileSync(src, dbPath);
-      console.log('[db] initialized from →', src);
-      return true;
+CREATE TABLE IF NOT EXISTS memories (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  content         TEXT NOT NULL,
+  content_hash    TEXT NOT NULL,
+  category        TEXT DEFAULT 'fact',
+  importance      INTEGER DEFAULT 3,
+  tags            TEXT DEFAULT '[]',
+  source_platform TEXT DEFAULT 'manual',
+  is_pinned       INTEGER DEFAULT 0,
+  is_active       INTEGER DEFAULT 1,
+  occurred_at     DATETIME,
+  expires_at      DATETIME,
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(character_id, content_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_character_id ON memories(character_id);
+CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
+CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
+CREATE INDEX IF NOT EXISTS idx_memories_is_pinned ON memories(is_pinned);
+CREATE INDEX IF NOT EXISTS idx_memories_is_active ON memories(is_active);
+
+CREATE TABLE IF NOT EXISTS session_logs (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  platform     TEXT DEFAULT 'other',
+  title        TEXT DEFAULT '',
+  summary      TEXT DEFAULT '',
+  raw_excerpt  TEXT DEFAULT '',
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_logs_character_id ON session_logs(character_id);
+`;
+
+async function ensureSchema(): Promise<void> {
+  const statements = CREATE_SCHEMA_SQL
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  for (const stmt of statements) {
+    try {
+      await prisma.$executeRawUnsafe(stmt + ';');
+    } catch (err) {
+      console.warn('[db] schema stmt skipped:', (err as Error).message);
     }
   }
-  console.warn('[db] schema-base.db not found (checked:', candidates.join(', '), ')');
-  return false;
-}
-
-function initializeDbIfNeeded(): void {
-  const url = process.env.DATABASE_URL || 'file:./data/memory.db';
-  const match = url.match(/^file:(.+)$/);
-  if (!match) return;
-
-  let dbPath = match[1];
-  if (!path.isAbsolute(dbPath)) {
-    dbPath = path.resolve(process.cwd(), dbPath);
-  }
-
-  if (fs.existsSync(dbPath)) {
-    console.log('[db] database already exists at', dbPath);
-    return;
-  }
-
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-  if (tryCopySchemaBase(dbPath)) return;
-
-  console.log('[db] no schema-base.db available, Prisma will create empty DB');
 }
 
 export async function ensureDb(): Promise<void> {
-  initializeDbIfNeeded();
-  try {
-    await prisma.$executeRawUnsafe('SELECT 1 FROM characters LIMIT 1');
-    console.log('[db] database ready (tables exist)');
-  } catch {
-    console.log('[db] tables missing, running schema push...');
-    schemaPush();
-  }
+  await ensureSchema();
   try {
     await prisma.$executeRawUnsafe(`
       UPDATE characters
