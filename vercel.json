@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "env": {
+    "DATABASE_URL": "file:/tmp/ai-character-memory.db"
+  },
   "builds": [
     {
       "src": "api/index.js",
@@ -7,7 +10,9 @@
       "config": {
         "includeFiles": [
           "dist/**",
-          "app/static/**"
+          "app/static/**",
+          "prisma/**",
+          "node_modules/.prisma/client/**"
         ]
       }
     }

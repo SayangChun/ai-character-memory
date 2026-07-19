@@ -1,6 +1,68 @@
+import fs from 'fs';
+import path from 'path';
 import { PrismaClient } from '@prisma/client';
 
-export const prisma = new PrismaClient();
+/**
+ * Prisma schema requires env("DATABASE_URL"). Locally this usually comes from `.env`
+ * (gitignored). On Vercel that file is not present, so we must set a default
+ * *before* constructing PrismaClient.
+ *
+ * Serverless (Vercel) filesystem is read-only except `/tmp`, so SQLite lives there.
+ * Note: `/tmp` is per-instance and ephemeral — export .memory.md / .acm.json for
+ * durable storage. For shared persistent DB, set DATABASE_URL to a hosted provider
+ * (Postgres / Turso / etc.).
+ */
+function isServerlessRuntime(): boolean {
+  return (
+    process.env.VERCEL === '1' ||
+    process.env.VERCEL === 'true' ||
+    Boolean(process.env.VERCEL_ENV) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME)
+  );
+}
+
+/** SQLite file URLs that cannot work on read-only serverless FS */
+function isEphemeralLocalSqlite(url: string): boolean {
+  if (!url.startsWith('file:')) return false;
+  // Allow explicit /tmp (or Windows temp) paths
+  if (url.includes('/tmp/') || url.includes('\\tmp\\') || /file:.*[\\/]Temp[\\/]/i.test(url)) {
+    return false;
+  }
+  return true;
+}
+
+function resolveDatabaseUrl(): string {
+  const fromEnv = process.env.DATABASE_URL?.trim() || '';
+
+  if (isServerlessRuntime()) {
+    // Missing URL, or a local-dev file path (e.g. file:./data/memory.db) → use /tmp
+    if (!fromEnv || isEphemeralLocalSqlite(fromEnv)) {
+      return 'file:/tmp/ai-character-memory.db';
+    }
+    return fromEnv;
+  }
+
+  if (fromEnv) return fromEnv;
+
+  // Match common local .env: relative to prisma/ schema directory
+  const dataDir = path.resolve(process.cwd(), 'prisma', 'data');
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+  } catch {
+    // ignore — Prisma will surface open errors if the path is unusable
+  }
+  return 'file:./data/memory.db';
+}
+
+const databaseUrl = resolveDatabaseUrl();
+// Keep process.env in sync so Prisma's env("DATABASE_URL") resolution succeeds
+process.env.DATABASE_URL = databaseUrl;
+
+export const prisma = new PrismaClient({
+  datasources: {
+    db: { url: databaseUrl },
+  },
+});
 
 const CREATE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS characters (
