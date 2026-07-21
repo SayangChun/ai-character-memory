@@ -488,6 +488,20 @@ a {
   padding: 28px 0 8px;
 }
 
+.wiz-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.site-logo {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(255, 107, 157, 0.2), 0 8px 20px rgba(192, 132, 252, 0.18);
+}
+
 .wiz-brand h1 {
   margin: 0;
   font-size: 1.45rem;

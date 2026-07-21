@@ -5,18 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="把导出提示词发给旧 AI，粘贴它返回的全量信息到本站，下载本地记忆包，换平台直接恢复。" />
   <title>AI 记忆迁移 · 从旧 AI 带走</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/static/favicon.svg" />
+  <meta name="theme-color" content="#0a0a0a" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <div id="viewApp" class="view app-wizard">
     <header class="wiz-header">
       <div class="wiz-brand">
-        <h1>AI 记忆迁移</h1>
-        <p>旧 AI 全量导出 → 粘贴解析 → 下载带走</p>
+        <div class="wiz-brand-row">
+          <img class="site-logo" src="/static/favicon.svg" width="40" height="40" alt="" />
+          <div>
+            <h1>AI 记忆迁移</h1>
+            <p>旧 AI 全量导出 → 粘贴解析 → 下载带走</p>
+          </div>
+        </div>
       </div>
       <div class="wiz-header-actions">
         <button class="btn btn-ghost btn-sm" id="btnShowSpec" type="button">格式说明</button>
-        <button class="btn btn-ghost btn-sm" id="btnDemo" type="button">加载演示</button>
       </div>
     </header>
 

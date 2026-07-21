@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI 记忆迁移">
+  <defs>
+    <linearGradient id="g" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff6b9d"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="gSoft" x1="18" y1="16" x2="46" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff8fb8"/>
+      <stop offset="100%" stop-color="#d8b4fe"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#ff6b9d" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- App tile -->
+  <rect width="64" height="64" rx="14" fill="#0a0a0a"/>
+  <rect width="64" height="64" rx="14" fill="url(#glow)"/>
+  <rect x="1.25" y="1.25" width="61.5" height="61.5" rx="12.75" fill="none" stroke="url(#g)" stroke-opacity="0.5" stroke-width="1.5"/>
+
+  <!-- Portable memory pack -->
+  <path
+    d="M19 15h19.2c1.1 0 2.1.4 2.9 1.2l6.7 6.7c.8.8 1.2 1.8 1.2 2.9V45c0 2.8-2.2 5-5 5H19c-2.8 0-5-2.2-5-5V20c0-2.8 2.2-5 5-5z"
+    fill="rgba(255,107,157,0.06)"
+    stroke="url(#g)"
+    stroke-width="2.5"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M38.2 15v7.2c0 1.2 1 2.2 2.2 2.2H47.5"
+    fill="none"
+    stroke="url(#g)"
+    stroke-width="2.5"
+    stroke-linejoin="round"
+  />
+
+  <!-- Memory nodes (old → core → new) -->
+  <circle cx="24" cy="31" r="3.1" fill="url(#gSoft)"/>
+  <circle cx="32" cy="36.5" r="4.2" fill="url(#gSoft)"/>
+  <circle cx="40" cy="31" r="3.1" fill="url(#gSoft)"/>
+  <path
+    d="M26.6 32.4l2.8 2.2M37.4 32.4l-2.8 2.2"
+    stroke="url(#g)"
+    stroke-width="2"
+    stroke-linecap="round"
+  />
+
+  <!-- Takeaway mark -->
+  <path
+    d="M26 47h12M34.2 44.2L37.8 47l-3.6 2.8"
+    fill="none"
+    stroke="url(#gSoft)"
+    stroke-width="2.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

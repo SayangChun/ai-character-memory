@@ -818,18 +818,6 @@ async function importBundleFile(file) {
   }
 }
 
-async function seedDemo() {
-  try {
-    const r = await api("/api/demo/seed", { method: "POST" });
-    toast(r.message + " — 可直接体验下载", "success");
-    state.currentId = r.character_id;
-    await loadCharacters();
-    await selectCharacter(r.character_id, 3);
-  } catch (e) {
-    toast(e.message, "error");
-  }
-}
-
 // ── init ─────────────────────────────────────────────────
 
 function initSelects() {
@@ -859,7 +847,6 @@ function bindAppEvents() {
   document.getElementById("btnCopyPortableMd").onclick = copyPortableMarkdown;
   document.getElementById("btnDownloadAcmBackup").onclick = downloadAcmBackup;
   document.getElementById("btnShowSpec").onclick = showPortableSpec;
-  document.getElementById("btnDemo").onclick = seedDemo;
   document.getElementById("btnGoStep3").onclick = () => goStep(3);
   document.getElementById("btnBackStep2").onclick = () => goStep(2);
 
