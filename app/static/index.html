@@ -3,180 +3,312 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="把网页 AI 记忆整理成本地文件，直接发给新 AI 恢复记忆，无需再经过本站。" />
-  <title>AI 角色记忆站</title>
+  <meta name="description" content="把导出提示词发给旧 AI，粘贴它返回的全量信息到本站，下载本地记忆包，换平台直接恢复。" />
+  <title>AI 记忆迁移 · 从旧 AI 带走</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <!-- 主应用 -->
-  <div id="viewApp" class="view app">
-    <aside class="sidebar">
-      <div class="brand">
-        <h1>角色记忆站</h1>
-        <p>整理记忆 · 导出给新 AI</p>
+  <div id="viewApp" class="view app-wizard">
+    <header class="wiz-header">
+      <div class="wiz-brand">
+        <h1>AI 记忆迁移</h1>
+        <p>旧 AI 全量导出 → 粘贴解析 → 下载带走</p>
+      </div>
+      <div class="wiz-header-actions">
+        <button class="btn btn-ghost btn-sm" id="btnShowSpec" type="button">格式说明</button>
+        <button class="btn btn-ghost btn-sm" id="btnDemo" type="button">加载演示</button>
+      </div>
+    </header>
+
+    <section class="mission-banner">
+      <div class="mission-text">
+        <strong>你不用从头手填。</strong>
+        把本站准备好的<strong>导出提示词</strong>发给「之前一直在用的 AI」，
+        让它按格式输出<strong>全量人设与记忆</strong>；
+        你把那段回复<strong>复制到本站</strong>即可导入。
+        需要时再补几条细节，然后下载本地文件——换平台时直接发给新 AI。
+      </div>
+      <ol class="mission-flow">
+        <li><span class="flow-n">1</span>旧 AI 全量导出</li>
+        <li class="flow-arrow" aria-hidden="true">→</li>
+        <li><span class="flow-n">2</span>粘贴到本站</li>
+        <li class="flow-arrow" aria-hidden="true">→</li>
+        <li><span class="flow-n">3</span>下载 · 发给新 AI</li>
+      </ol>
+    </section>
+
+    <nav class="step-nav" aria-label="迁移步骤">
+      <button type="button" class="step-tab active" data-step="1" id="tabStep1">
+        <span class="step-num">1</span>
+        <span class="step-label">从旧 AI 导入</span>
+      </button>
+      <button type="button" class="step-tab" data-step="2" id="tabStep2" disabled>
+        <span class="step-num">2</span>
+        <span class="step-label">核对补充</span>
+      </button>
+      <button type="button" class="step-tab" data-step="3" id="tabStep3" disabled>
+        <span class="step-num">3</span>
+        <span class="step-label">下载带走</span>
+      </button>
+    </nav>
+
+    <main class="wiz-main">
+      <div class="session-bar" id="sessionBar" style="display:none">
+        <div class="session-info">
+          当前：
+          <strong id="sessionCharName">—</strong>
+          <span class="hint-inline" id="sessionMemCount"></span>
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-sm" id="btnNewChar" type="button">重新导入（新的一次）</button>
+          <label class="btn btn-sm" style="cursor:pointer" title="仅站内备份">
+            站内备份
+            <input type="file" id="fileImport" accept="application/json,.json,.acm.json" hidden />
+          </label>
+        </div>
       </div>
 
-      <div class="stats-row" id="stats"></div>
-      <div class="sidebar-actions">
-        <button class="btn btn-primary" id="btnNewChar">新建角色</button>
-        <label class="btn btn-accent" style="cursor:pointer" title="上传 .acm.json 站内备份以继续编辑">
-          导入站内备份
-          <input type="file" id="fileImport" accept="application/json,.json,.acm.json" hidden />
-        </label>
-        <button class="btn" id="btnDemo">加载演示角色</button>
-        <button class="btn" id="btnRefresh">刷新</button>
-
-      </div>
-      <div class="import-mode-box">
-        <div class="hint" style="margin-bottom:6px">导入备份时策略</div>
-        <select id="importMode" title="导入模式">
-          <option value="create">新建角色（推荐首次）</option>
-          <option value="merge">合并到同名角色</option>
-          <option value="replace">覆盖同名角色记忆</option>
-        </select>
-      </div>
-      <div class="char-list" id="charList"></div>
-    </aside>
-
-    <main class="main">
-      <div class="empty-state" id="emptyMain">
-        <div class="big">M</div>
-        <h2>选择角色，开始整理记忆</h2>
-        <p>
-          把各网页 AI 的记忆统一成<strong>本地文件</strong>，
-          换新 AI 时<strong>直接把文件发给它</strong>即可恢复——不经过本站。
-        </p>
-      </div>
-
-      <div id="mainContent" style="display:none">
-        <div class="topbar">
-          <div>
-            <h2 id="charTitle"></h2>
-            <div class="hint" id="charSub"></div>
-          </div>
-          <div class="top-actions">
-            <button class="btn btn-primary" id="btnDownloadPortable">下载给新 AI</button>
-            <button class="btn" id="btnEditChar">编辑角色</button>
-            <button class="btn" id="btnAddMem">添加记忆</button>
-            <button class="btn" id="btnImport">从对话提取</button>
-            <button class="btn btn-danger" id="btnDeleteChar">删除角色</button>
-          </div>
+      <!-- ══════ Step 1: 提示词 + 粘贴导入 ══════ -->
+      <section class="step-panel active" id="panelStep1" data-step="1">
+        <div class="step-head">
+          <h2>第 1 步 · 让旧 AI 输出全量信息</h2>
+          <p class="hint">
+            主路径：复制提示词 → 发给之前的 AI → 把它的完整回复粘贴回来 → 一键导入。
+            <strong>不必从零填写人设。</strong>
+          </p>
         </div>
 
-        <!-- 本地记忆包：主路径 = 发给任意新 AI -->
-        <section class="panel portable-panel">
-          <h3>本地记忆包 · 发给新 AI</h3>
-          <p class="hint">
-            格式 <code id="portableFormatLabel">ai-memory-pack</code> ·
-            <code>.memory.md</code>
-            · 下载后保存到电脑 / 网盘；在 ChatGPT、Claude、Gemini 等<strong>直接上传或粘贴</strong>该文件，
-            即可恢复人设与记忆，<strong>不需要再打开本站</strong>。
-          </p>
-          <div class="portable-actions">
-            <button class="btn btn-primary btn-lg" id="btnDownloadPortableMain">下载 .memory.md</button>
-            <button class="btn btn-lg" id="btnCopyPortableMd">复制全文（粘贴用）</button>
-            <button class="btn" id="btnDownloadAcmBackup">下载站内备份 .acm.json</button>
-            <label class="btn" style="cursor:pointer" title="仅用于把备份重新导入本站编辑">
-              导入站内备份
-              <input type="file" id="fileImportMain" accept="application/json,.json,.acm.json" hidden />
-            </label>
-            <button class="btn btn-ghost" id="btnShowSpec">格式说明</button>
+        <!-- A. 复制提示词 -->
+        <section class="panel prompt-panel">
+          <div class="panel-title-row">
+            <h3>A. 复制这段提示词，发给「之前使用的 AI」</h3>
+            <button class="btn btn-primary" id="btnCopyExportPrompt" type="button">复制提示词</button>
           </div>
-          <div class="portable-meta" id="portableMeta"></div>
-          <details class="portable-preview-wrap" open>
-            <summary>预览记忆包（即发给新 AI 的内容）</summary>
-            <pre class="context-preview" id="portablePreview">（选择角色后加载）</pre>
-          </details>
+          <p class="hint" id="exportPromptHint">
+            在 ChatGPT / Claude / 角色站 / 国产模型等<strong>原来的对话</strong>里粘贴发送，
+            让它按格式导出全部人设与记忆。
+          </p>
+          <pre class="context-preview prompt-preview" id="exportPromptText">（加载中…）</pre>
+          <ul class="tip-list" id="exportPromptTips"></ul>
         </section>
 
+        <!-- B. 粘贴回复 -->
+        <section class="panel dump-paste-panel">
+          <h3>B. 把旧 AI 的完整回复粘贴到这里</h3>
+          <p class="hint">
+            尽量粘贴<strong>整段导出正文</strong>（含「角色身份 / 人设 / 说话风格 / 持久记忆」）。
+            若它一次没写全，可在旧 AI 里追问补全后再整段复制。
+          </p>
+          <label class="field">旧 AI 导出正文
+            <textarea
+              id="aiDumpText"
+              class="dump-textarea"
+              placeholder="在此粘贴旧 AI 返回的全量导出内容…"
+            ></textarea>
+          </label>
+          <div class="step-footer between" style="margin-top:12px">
+            <button class="btn" id="btnPreviewDump" type="button">先预览解析结果</button>
+            <button class="btn btn-primary btn-lg" id="btnImportDump" type="button">
+              解析并导入
+            </button>
+          </div>
+          <div id="dumpPreviewBox" class="dump-preview-box" style="display:none"></div>
+        </section>
+
+        <!-- 次要路径：手动 -->
+        <section class="panel advanced-panel">
+          <details>
+            <summary>备用：没有旧 AI 可导出时，手动填写人设</summary>
+            <p class="hint" style="margin-top:10px">仅在无法让旧 AI 导出时使用。主路径仍是上方「提示词 → 粘贴」。</p>
+            <div class="form-grid">
+              <div class="form-row">
+                <label class="field">内部名（英文/拼音）
+                  <input type="text" id="charName" placeholder="linxia" autocomplete="off" />
+                </label>
+                <label class="field">显示名
+                  <input type="text" id="charDisplayName" placeholder="林夏" autocomplete="off" />
+                </label>
+              </div>
+              <label class="field">关系阶段
+                <input type="text" id="charStage" value="初识" placeholder="初识 / 暧昧 / 热恋…" />
+              </label>
+              <input type="hidden" id="charEmoji" value="" />
+              <label class="field">人设 / Persona
+                <textarea id="charPersona" placeholder="性格、背景…"></textarea>
+              </label>
+              <label class="field">说话风格
+                <textarea id="charStyle" placeholder="语气、用词…"></textarea>
+              </label>
+              <label class="field">备注（可选）
+                <textarea id="charNotes" rows="2"></textarea>
+              </label>
+            </div>
+            <div class="step-footer">
+              <button class="btn" id="btnSaveChar" type="button">手动创建后进入补充</button>
+            </div>
+          </details>
+        </section>
+      </section>
+
+      <!-- ══════ Step 2: 核对补充 ══════ -->
+      <section class="step-panel" id="panelStep2" data-step="2">
+        <div class="step-head">
+          <h2>第 2 步 · 核对并补充细节（可选）</h2>
+          <p class="hint">
+            导入内容已可用。这里只改错漏、补关键条目；不必重写全部。
+            满意后去第 3 步下载。
+          </p>
+        </div>
+
         <div class="grid-2">
-          <section class="panel">
-            <h3><span>记忆库</span></h3>
-            <div class="toolbar">
-              <input type="search" id="searchQ" placeholder="搜索记忆内容…" />
-              <select id="filterCategory"></select>
-            </div>
-            <div class="checkbox-row" style="margin-bottom:10px">
-              <label><input type="checkbox" id="filterPinned" /> 仅置顶</label>
-              <label><input type="checkbox" id="filterActive" /> 仅启用</label>
-            </div>
-            <div class="memory-list" id="memoryList"></div>
-          </section>
+          <div>
+            <section class="panel">
+              <h3>补充记忆</h3>
+              <div class="quick-actions">
+                <button class="btn btn-primary" id="btnAddMem" type="button">手动加一条</button>
+                <button class="btn" id="btnImport" type="button">再粘贴一段对话提取</button>
+              </div>
+              <p class="hint" style="margin-top:10px">
+                若旧 AI 漏了禁忌、称呼等，在这里补几条即可。
+              </p>
+            </section>
+
+            <section class="panel">
+              <h3>
+                <span>已导入记忆</span>
+                <span class="hint-inline" id="memListCount"></span>
+              </h3>
+              <div class="toolbar">
+                <input type="search" id="searchQ" placeholder="搜索记忆…" />
+                <select id="filterCategory"></select>
+              </div>
+              <div class="checkbox-row" style="margin-bottom:10px">
+                <label><input type="checkbox" id="filterPinned" /> 仅置顶</label>
+                <label><input type="checkbox" id="filterActive" checked /> 仅启用</label>
+              </div>
+              <div class="memory-list" id="memoryList"></div>
+            </section>
+          </div>
 
           <div>
             <section class="panel">
-              <h3>人设速览</h3>
+              <h3>人设（可改）</h3>
               <div class="persona-box" id="personaPreview"></div>
               <div class="divider"></div>
               <div class="hint">说话风格</div>
               <div class="persona-box" id="stylePreview"></div>
+              <div class="step-footer" style="margin-top:14px">
+                <button class="btn" id="btnEditChar" type="button">修改人设</button>
+              </div>
             </section>
 
-            <section class="panel collapsible-panel">
-              <h3>
-                <span>记忆卡快贴</span>
-                <button class="btn btn-sm btn-primary" id="btnCopyCtx">复制</button>
-              </h3>
-              <p class="hint">可选：生成更短的提示词片段临时粘贴。日常换 AI 请优先用上方的 <code>.memory.md</code> 文件。</p>
-              <div class="form-row" style="margin-bottom:10px;margin-top:10px">
-                <label class="field">格式
-                  <select id="ctxFormat"></select>
-                </label>
-                <label class="field">最大字符
-                  <input type="number" id="ctxMaxChars" value="6000" min="500" max="50000" step="500" />
-                </label>
-              </div>
-              <div class="form-row" style="margin-bottom:10px">
-                <label class="field">最低重要度
-                  <select id="ctxMinImp"></select>
-                </label>
-                <label class="field" style="justify-content:flex-end">
-                  <span>&nbsp;</span>
-                  <span class="checkbox-row">
-                    <label><input type="checkbox" id="ctxPersona" checked /> 包含人设</label>
-                  </span>
-                </label>
-              </div>
-              <button class="btn" id="btnGenCtx" style="width:100%;margin-bottom:10px">重新生成</button>
-              <div class="context-meta" id="contextMeta"></div>
-              <pre class="context-preview" id="contextPreview">（选择角色后自动生成）</pre>
+            <section class="panel next-cta-panel">
+              <h3>可以下载了？</h3>
+              <p class="hint">核对无误后下载本地记忆包。换平台时把文件直接发给新 AI，不必再回本站。</p>
+              <button class="btn btn-primary btn-lg" id="btnGoStep3" type="button">
+                去第 3 步 · 下载带走
+              </button>
             </section>
           </div>
         </div>
-      </div>
+      </section>
+
+      <!-- ══════ Step 3: 下载 ══════ -->
+      <section class="step-panel" id="panelStep3" data-step="3">
+        <div class="step-head">
+          <h2>第 3 步 · 下载本地记忆包</h2>
+          <p class="hint">
+            保存到电脑或网盘。换平台时打开新 AI，<strong>上传或粘贴</strong>该文件即可恢复记忆。
+          </p>
+        </div>
+
+        <section class="panel portable-panel download-hero">
+          <div class="download-hero-inner">
+            <div class="download-badge">主交付物</div>
+            <h3>下载 <code>.memory.md</code></h3>
+            <p>纯 Markdown，任意网页 AI 可读。文件内含使用说明，可直接投喂。</p>
+            <div class="portable-meta" id="portableMeta"></div>
+            <div class="portable-actions">
+              <button class="btn btn-primary btn-lg" id="btnDownloadPortableMain" type="button">
+                下载记忆包到本地
+              </button>
+              <button class="btn btn-lg" id="btnCopyPortableMd" type="button">复制全文</button>
+            </div>
+          </div>
+          <details class="portable-preview-wrap">
+            <summary>预览将发给新 AI 的内容</summary>
+            <pre class="context-preview" id="portablePreview">（加载中…）</pre>
+          </details>
+        </section>
+
+        <section class="panel restore-guide" id="restoreGuide">
+          <h3>换平台时怎么用</h3>
+          <ol class="restore-steps">
+            <li>打开新的 AI，新建对话</li>
+            <li>上传 <code>.memory.md</code>，或粘贴全文</li>
+            <li>发送：「请按附件恢复人设与记忆，之后自然延续」</li>
+            <li>继续聊天——不必再打开本站</li>
+          </ol>
+          <div class="restore-note">
+            <strong>记住：</strong>记忆源在你下载的本地文件里，不在本网站。
+          </div>
+        </section>
+
+        <section class="panel advanced-panel">
+          <details>
+            <summary>高级：站内备份 .acm.json（仅回本站再编辑时用）</summary>
+            <div class="portable-actions" style="margin-top:10px">
+              <button class="btn" id="btnDownloadAcmBackup" type="button">下载 .acm.json</button>
+              <label class="btn" style="cursor:pointer">
+                导入备份
+                <input type="file" id="fileImportMain" accept="application/json,.json,.acm.json" hidden />
+              </label>
+              <select id="importMode" class="inline-select">
+                <option value="create">新建角色</option>
+                <option value="merge">合并到同名</option>
+                <option value="replace">覆盖同名记忆</option>
+              </select>
+            </div>
+          </details>
+        </section>
+
+        <div class="step-footer between">
+          <button class="btn" id="btnBackStep2" type="button">返回补充</button>
+          <button class="btn btn-ghost" id="btnDeleteChar" type="button">清除本站本次数据</button>
+        </div>
+      </section>
     </main>
+
+    <footer class="wiz-footer">
+      主路径：<strong>旧 AI 提示词导出 → 粘贴导入 → 下载 .memory.md → 发给新 AI</strong>。
+      本站不是云端记忆库。
+    </footer>
   </div>
 
-  <!-- character modal -->
+  <!-- persona edit modal (for refine after import) -->
   <div class="modal-backdrop" id="charModal">
     <div class="modal">
-      <h3 id="charModalTitle">新建角色</h3>
+      <h3 id="charModalTitle">修改人设</h3>
       <div class="form-grid">
-        <div class="form-row">
-          <label class="field">内部名（唯一，英文/拼音）
-            <input type="text" id="charName" placeholder="linxia" />
-          </label>
-          <label class="field">显示名
-            <input type="text" id="charDisplayName" placeholder="林夏" />
-          </label>
-        </div>
-        <label class="field">关系阶段
-          <input type="text" id="charStage" value="初识" placeholder="初识 / 暧昧 / 热恋…" />
+        <label class="field">显示名
+          <input type="text" id="editDisplayName" />
         </label>
-        <input type="hidden" id="charEmoji" value="" />
-        <label class="field">人设 / Persona
-          <textarea id="charPersona" placeholder="性格、背景、外貌…"></textarea>
+        <label class="field">关系阶段
+          <input type="text" id="editStage" />
+        </label>
+        <label class="field">人设
+          <textarea id="editPersona"></textarea>
         </label>
         <label class="field">说话风格
-          <textarea id="charStyle" placeholder="语气、用词习惯…"></textarea>
+          <textarea id="editStyle"></textarea>
         </label>
         <label class="field">备注
-          <textarea id="charNotes" rows="2"></textarea>
+          <textarea id="editNotes" rows="2"></textarea>
         </label>
       </div>
       <div class="modal-actions">
-        <button class="btn" data-close="charModal">取消</button>
-        <button class="btn btn-primary" id="btnSaveChar">保存</button>
+        <button class="btn" data-close="charModal" type="button">取消</button>
+        <button class="btn btn-primary" id="btnSaveEditChar" type="button">保存</button>
       </div>
     </div>
   </div>
@@ -205,41 +337,40 @@
         </label>
       </div>
       <div class="modal-actions">
-        <button class="btn" data-close="memModal">取消</button>
-        <button class="btn btn-primary" id="btnSaveMem">保存</button>
+        <button class="btn" data-close="memModal" type="button">取消</button>
+        <button class="btn btn-primary" id="btnSaveMem" type="button">保存</button>
       </div>
     </div>
   </div>
 
-  <!-- import modal -->
+  <!-- import chat modal -->
   <div class="modal-backdrop" id="importModal">
     <div class="modal wide">
-      <h3>从对话文本提取记忆</h3>
-      <p class="hint">粘贴角色相关对话文本 → 提取候选记忆 → 写入当前角色。建议导入后「下载到本地」备份。</p>
+      <h3>从对话文本再提取</h3>
+      <p class="hint">用于补漏：粘贴旧对话片段 → 提取候选 → 写入。主数据仍建议用第 1 步全量导出。</p>
       <div class="form-grid">
         <label class="field">对话文本
-          <textarea id="importText" style="min-height:140px" placeholder="粘贴对话文本…"></textarea>
+          <textarea id="importText" style="min-height:140px" placeholder="粘贴对话…"></textarea>
         </label>
       </div>
       <div class="modal-actions" style="justify-content:flex-start;margin-top:10px">
-        <button class="btn" id="btnSuggest">提取建议</button>
+        <button class="btn" id="btnSuggest" type="button">提取建议</button>
       </div>
       <div class="suggest-list" id="suggestList"></div>
       <div class="modal-actions">
-        <button class="btn" data-close="importModal">取消</button>
-        <button class="btn btn-primary" id="btnConfirmImport">导入选中</button>
+        <button class="btn" data-close="importModal" type="button">取消</button>
+        <button class="btn btn-primary" id="btnConfirmImport" type="button">导入选中</button>
       </div>
     </div>
   </div>
 
-  <!-- format spec modal -->
   <div class="modal-backdrop" id="specModal">
     <div class="modal wide">
-      <h3>本地记忆包格式说明</h3>
+      <h3>说明</h3>
       <div id="specBody" class="spec-body hint"></div>
       <pre class="context-preview" id="specExample" style="max-height:280px"></pre>
       <div class="modal-actions">
-        <button class="btn btn-primary" data-close="specModal">关闭</button>
+        <button class="btn btn-primary" data-close="specModal" type="button">关闭</button>
       </div>
     </div>
   </div>

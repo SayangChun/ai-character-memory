@@ -1,7 +1,7 @@
 {
   "name": "memory",
   "version": "1.0.0",
-  "description": "把网页 AI 记忆整理成本地 .memory.md，直接发给新 AI 恢复记忆。",
+  "description": "一次性把网页 AI 记忆整理成本地 .memory.md；换平台时直接发给新 AI 恢复，无需反复使用本站。",
   "main": "index.js",
   "directories": {
     "doc": "docs"

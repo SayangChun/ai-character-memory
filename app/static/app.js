@@ -11,22 +11,15 @@ const CATEGORIES = {
   other: "其他",
 };
 
-const FORMATS = {
-  universal: "通用记忆卡",
-  system_prompt: "系统提示词",
-  compact: "紧凑精简",
-  json: "JSON",
-};
-
 const state = {
-  site: null,
   characters: [],
   currentId: null,
   memories: [],
-  stats: null,
   editMemoryId: null,
   suggestions: [],
   portablePackage: null,
+  step: 1,
+  exportPrompt: null,
 };
 
 // ── api ──────────────────────────────────────────────────
@@ -52,7 +45,7 @@ async function api(path, options = {}) {
   return JSON.parse(text);
 }
 
-// ── toast / ui helpers ───────────────────────────────────
+// ── toast / ui ───────────────────────────────────────────
 
 function toast(message, type = "info") {
   const wrap = document.getElementById("toasts");
@@ -60,17 +53,11 @@ function toast(message, type = "info") {
   el.className = `toast ${type}`;
   el.textContent = message;
   wrap.appendChild(el);
-  setTimeout(() => el.remove(), 2800);
+  setTimeout(() => el.remove(), 3600);
 }
 
 function importanceLabel(n) {
   return `重要度 ${n}`;
-}
-
-/** First character of display name; never falls back to emoji. */
-function avatarLetter(displayName, name) {
-  const s = String(displayName || name || "?").trim();
-  return s ? s.charAt(0) : "?";
 }
 
 function escapeHtml(s) {
@@ -82,6 +69,7 @@ function escapeHtml(s) {
 }
 
 function fillSelect(el, map, includeAll = false) {
+  if (!el) return;
   el.innerHTML = "";
   if (includeAll) {
     const o = document.createElement("option");
@@ -112,110 +100,340 @@ function debounce(fn, ms) {
   };
 }
 
-async function enterApp() {
-  bindAppEvents();
-  initSelects();
+async function copyText(text) {
   try {
-    await loadStats();
-  } catch (e) {
-    console.error("loadStats failed", e);
-  }
-  try {
-    await loadCharacters();
-    if (state.characters.length) {
-      await selectCharacter(state.characters[0].id);
-    } else {
-      document.getElementById("emptyMain").style.display = "block";
-      document.getElementById("mainContent").style.display = "none";
-    }
-  } catch (e) {
-    console.error("loadCharacters failed", e);
-    document.getElementById("charList").innerHTML =
-      `<div class="hint" style="padding:12px;color:#e66">角色加载失败：${escapeHtml(
-        e.message || String(e)
-      )}</div>`;
-    document.getElementById("emptyMain").style.display = "block";
-    document.getElementById("mainContent").style.display = "none";
-    toast(e.message || "角色加载失败", "error");
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    return true;
   }
 }
 
-// ── data load ────────────────────────────────────────────
+// ── wizard ───────────────────────────────────────────────
 
-async function loadStats() {
-  state.stats = await api("/api/stats");
-  document.getElementById("stats").innerHTML = `
-    <span class="stat-chip">角色 ${state.stats.character_count}</span>
-    <span class="stat-chip">记忆 ${state.stats.memory_count}</span>
-    <span class="stat-chip">置顶 ${state.stats.pinned_memory_count}</span>
-  `;
+function goStep(n) {
+  state.step = n;
+  document.querySelectorAll(".step-panel").forEach((p) => {
+    p.classList.toggle("active", Number(p.dataset.step) === n);
+  });
+  document.querySelectorAll(".step-tab").forEach((tab) => {
+    const s = Number(tab.dataset.step);
+    tab.classList.toggle("active", s === n);
+    tab.classList.toggle("done", s < n && !!state.currentId);
+    if (state.currentId) tab.disabled = false;
+    else tab.disabled = s > 1;
+  });
+
+  if (n === 2 && state.currentId) {
+    loadMemories();
+    refreshPersonaPreview();
+    updateSessionBar();
+  }
+  if (n === 3 && state.currentId) {
+    loadPortablePreview();
+    updateSessionBar();
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-async function loadCharacters() {
-  state.characters = await api("/api/characters");
-  const list = document.getElementById("charList");
-  list.innerHTML = "";
-  if (!state.characters.length) {
-    list.innerHTML = `<div class="hint" style="padding:12px">还没有角色，点上方按钮创建或加载演示。</div>`;
+function updateSessionBar() {
+  const bar = document.getElementById("sessionBar");
+  const c = state.characters.find((x) => x.id === state.currentId);
+  if (!c) {
+    bar.style.display = "none";
     return;
   }
-  for (const c of state.characters) {
-    const btn = document.createElement("button");
-    btn.className = `char-item ${c.id === state.currentId ? "active" : ""}`;
-    btn.innerHTML = `
-      <div class="char-emoji">${escapeHtml(avatarLetter(c.display_name, c.name))}</div>
-      <div class="char-meta">
-        <div class="name">${escapeHtml(c.display_name)}</div>
-        <div class="sub">${escapeHtml(c.relationship_stage)} · ${c.memory_count} 条记忆</div>
-      </div>`;
-    btn.onclick = () => selectCharacter(c.id);
-    list.appendChild(btn);
-  }
+  bar.style.display = "flex";
+  document.getElementById("sessionCharName").textContent = c.display_name;
+  document.getElementById("sessionMemCount").textContent =
+    `· ${c.memory_count ?? state.memories.length} 条记忆`;
 }
 
-async function selectCharacter(id) {
-  state.currentId = id;
-  await loadCharacters();
-  const c = state.characters.find((x) => x.id === id);
-  document.getElementById("emptyMain").style.display = "none";
-  document.getElementById("mainContent").style.display = "block";
-  document.getElementById("charTitle").innerHTML = `
-    <span class="char-title-letter">${escapeHtml(avatarLetter(c.display_name, c.name))}</span>
-    <span>${escapeHtml(c.display_name)}</span>
-    <span class="badge pink">${escapeHtml(c.relationship_stage)}</span>
-  `;
-  document.getElementById("charSub").textContent =
-    `内部名: ${c.name} · 记忆 ${c.memory_count} 条 · 可下载 .memory.md 发给新 AI`;
+function refreshPersonaPreview() {
+  const c = state.characters.find((x) => x.id === state.currentId);
+  if (!c) return;
   document.getElementById("personaPreview").textContent =
     c.persona || "（未设置人设）";
   document.getElementById("stylePreview").textContent =
     c.speaking_style || "（未设置说话风格）";
-  await loadMemories();
-  await loadPortablePreview();
-  await generateContext();
 }
+
+// ── export prompt (for previous AI) ──────────────────────
+
+async function loadExportPrompt() {
+  try {
+    const data = await api("/api/export-prompt");
+    state.exportPrompt = data;
+    document.getElementById("exportPromptText").textContent = data.prompt;
+    const tips = document.getElementById("exportPromptTips");
+    tips.innerHTML = (data.tips || [])
+      .map((t) => `<li>${escapeHtml(t)}</li>`)
+      .join("");
+    if (data.expected_format_hint) {
+      document.getElementById("exportPromptHint").textContent =
+        data.expected_format_hint;
+    }
+  } catch (e) {
+    document.getElementById("exportPromptText").textContent =
+      "加载提示词失败：" + (e.message || e);
+  }
+}
+
+async function copyExportPrompt() {
+  const text =
+    state.exportPrompt?.prompt ||
+    document.getElementById("exportPromptText").textContent;
+  if (!text || text.startsWith("（加载") || text.startsWith("加载失败")) {
+    toast("提示词尚未加载", "error");
+    return;
+  }
+  await copyText(text);
+  toast("提示词已复制 — 去旧 AI 对话里粘贴发送", "success");
+}
+
+// ── AI dump import ───────────────────────────────────────
+
+function getDumpText() {
+  return document.getElementById("aiDumpText").value.trim();
+}
+
+async function previewDump() {
+  const text = getDumpText();
+  if (!text) {
+    toast("请先粘贴旧 AI 的导出正文", "error");
+    return;
+  }
+  const box = document.getElementById("dumpPreviewBox");
+  try {
+    const data = await api("/api/import/ai-dump/preview", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    box.style.display = "block";
+    const ch = data.character || {};
+    const previewLines = (data.memories_preview || [])
+      .slice(0, 12)
+      .map(
+        (m) =>
+          `<li><span class="tag cat-${escapeHtml(m.category)}">${escapeHtml(
+            CATEGORIES[m.category] || m.category
+          )}</span> ${escapeHtml(m.content)}</li>`
+      )
+      .join("");
+    box.innerHTML = `
+      <div class="dump-preview-head">预览（尚未写入）</div>
+      <p><strong>${escapeHtml(ch.display_name || "—")}</strong>
+        · ${escapeHtml(ch.relationship_stage || "")}
+        · 将导入约 <strong>${data.memory_count}</strong> 条记忆
+        · 格式 ${escapeHtml(data.source_format || "")}</p>
+      <p class="hint">人设摘要：${escapeHtml((ch.persona || "（空）").slice(0, 160))}${(ch.persona || "").length > 160 ? "…" : ""}</p>
+      ${
+        data.parse_notes?.length
+          ? `<p class="hint">解析备注：${data.parse_notes.map(escapeHtml).join("；")}</p>`
+          : ""
+      }
+      <ul class="dump-preview-list">${previewLines || "<li class='hint'>未识别到记忆条目</li>"}</ul>
+      ${
+        data.memory_count > 12
+          ? `<p class="hint">… 另有 ${data.memory_count - 12} 条未在预览中展示</p>`
+          : ""
+      }
+    `;
+    if (data.memory_count === 0 && !ch.persona) {
+      toast("几乎没解析出内容，请确认粘贴的是完整导出正文", "error");
+    } else {
+      toast(`预览：${ch.display_name} · ${data.memory_count} 条记忆`, "success");
+    }
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+async function importDump() {
+  const text = getDumpText();
+  if (!text) {
+    toast("请先粘贴旧 AI 的导出正文", "error");
+    return;
+  }
+  const btn = document.getElementById("btnImportDump");
+  btn.disabled = true;
+  try {
+    const result = await api("/api/import/ai-dump", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    toast(result.message || "导入成功", "success");
+    state.currentId = result.character.id;
+    await loadCharacters();
+    await selectCharacter(result.character.id, 2);
+    document.getElementById("aiDumpText").value = "";
+    document.getElementById("dumpPreviewBox").style.display = "none";
+  } catch (e) {
+    toast(e.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── characters ───────────────────────────────────────────
+
+async function loadCharacters() {
+  state.characters = await api("/api/characters");
+  updateSessionBar();
+}
+
+async function selectCharacter(id, preferredStep) {
+  state.currentId = id;
+  await loadCharacters();
+  const c = state.characters.find((x) => x.id === id);
+  if (!c) return;
+
+  document.querySelectorAll(".step-tab").forEach((tab) => {
+    tab.disabled = false;
+  });
+
+  refreshPersonaPreview();
+  const step = preferredStep ?? 2;
+  goStep(step);
+  if (step >= 2) await loadMemories();
+  if (step === 3) await loadPortablePreview();
+}
+
+async function saveCharacterManual() {
+  const body = {
+    name: document.getElementById("charName").value.trim(),
+    display_name: document.getElementById("charDisplayName").value.trim(),
+    avatar_emoji: "",
+    relationship_stage:
+      document.getElementById("charStage").value.trim() || "初识",
+    persona: document.getElementById("charPersona").value,
+    speaking_style: document.getElementById("charStyle").value,
+    notes: document.getElementById("charNotes").value,
+  };
+  if (!body.name || !body.display_name) {
+    toast("手动创建请填写内部名和显示名", "error");
+    return;
+  }
+  try {
+    const c = await api("/api/characters", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    state.currentId = c.id;
+    toast("已手动创建，请补充记忆后下载", "success");
+    await loadCharacters();
+    await selectCharacter(c.id, 2);
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+function openEditPersona() {
+  const c = state.characters.find((x) => x.id === state.currentId);
+  if (!c) return;
+  document.getElementById("editDisplayName").value = c.display_name || "";
+  document.getElementById("editStage").value = c.relationship_stage || "";
+  document.getElementById("editPersona").value = c.persona || "";
+  document.getElementById("editStyle").value = c.speaking_style || "";
+  document.getElementById("editNotes").value = c.notes || "";
+  openModal("charModal");
+}
+
+async function saveEditPersona() {
+  if (!state.currentId) return;
+  try {
+    await api(`/api/characters/${state.currentId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        display_name: document.getElementById("editDisplayName").value.trim(),
+        relationship_stage:
+          document.getElementById("editStage").value.trim() || "初识",
+        persona: document.getElementById("editPersona").value,
+        speaking_style: document.getElementById("editStyle").value,
+        notes: document.getElementById("editNotes").value,
+      }),
+    });
+    toast("人设已更新", "success");
+    closeModal("charModal");
+    await loadCharacters();
+    refreshPersonaPreview();
+    updateSessionBar();
+    if (state.step === 3) await loadPortablePreview();
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+async function startFresh() {
+  if (state.currentId) {
+    const ok = confirm(
+      "开始新的一次导入会离开当前数据。若尚未下载 .memory.md，请先到第 3 步下载。\n\n确定重新开始？"
+    );
+    if (!ok) return;
+  }
+  state.currentId = null;
+  state.memories = [];
+  state.portablePackage = null;
+  document.querySelectorAll(".step-tab").forEach((tab) => {
+    tab.disabled = Number(tab.dataset.step) > 1;
+  });
+  document.getElementById("sessionBar").style.display = "none";
+  goStep(1);
+}
+
+async function deleteCharacter() {
+  if (!state.currentId) return;
+  if (
+    !confirm(
+      "清除本站本次数据？\n（已下载到本地的 .memory.md 不受影响。）"
+    )
+  )
+    return;
+  try {
+    await api(`/api/characters/${state.currentId}`, { method: "DELETE" });
+    toast("本站数据已清除", "success");
+    state.currentId = null;
+    state.memories = [];
+    goStep(1);
+    await loadCharacters();
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+// ── memories ─────────────────────────────────────────────
 
 async function loadMemories() {
   if (!state.currentId) return;
-  const q = document.getElementById("searchQ").value.trim();
-  const category = document.getElementById("filterCategory").value;
+  const q = document.getElementById("searchQ")?.value.trim() || "";
+  const category = document.getElementById("filterCategory")?.value || "";
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (category) params.set("category", category);
-  if (document.getElementById("filterPinned").checked)
+  if (document.getElementById("filterPinned")?.checked)
     params.set("pinned_only", "true");
-  if (document.getElementById("filterActive").checked)
+  if (document.getElementById("filterActive")?.checked)
     params.set("active_only", "true");
   state.memories = await api(
     `/api/characters/${state.currentId}/memories?${params}`
   );
   renderMemories();
+  const countEl = document.getElementById("memListCount");
+  if (countEl) countEl.textContent = `${state.memories.length} 条`;
+  updateSessionBar();
 }
 
 function renderMemories() {
   const list = document.getElementById("memoryList");
+  if (!list) return;
   if (!state.memories.length) {
-    list.innerHTML = `<div class="hint">暂无记忆。添加第一条，或从对话文本提取。</div>`;
+    list.innerHTML = `<div class="hint">暂无记忆。可返回第 1 步重新粘贴导出，或在此手动添加。</div>`;
     return;
   }
   list.innerHTML = state.memories
@@ -235,93 +453,16 @@ function renderMemories() {
         <div class="memory-foot">
           <span>${new Date(m.updated_at).toLocaleString()}</span>
           <div class="memory-actions">
-            <button class="btn btn-sm" onclick="togglePin(${m.id}, ${!m.is_pinned})">${m.is_pinned ? "取消置顶" : "置顶"}</button>
-            <button class="btn btn-sm" onclick="toggleActive(${m.id}, ${!m.is_active})">${m.is_active ? "停用" : "启用"}</button>
-            <button class="btn btn-sm" onclick="openEditMemory(${m.id})">编辑</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteMemory(${m.id})">删除</button>
+            <button class="btn btn-sm" type="button" onclick="togglePin(${m.id}, ${!m.is_pinned})">${m.is_pinned ? "取消置顶" : "置顶"}</button>
+            <button class="btn btn-sm" type="button" onclick="toggleActive(${m.id}, ${!m.is_active})">${m.is_active ? "停用" : "启用"}</button>
+            <button class="btn btn-sm" type="button" onclick="openEditMemory(${m.id})">编辑</button>
+            <button class="btn btn-sm btn-danger" type="button" onclick="deleteMemory(${m.id})">删除</button>
           </div>
         </div>
       </div>`;
     })
     .join("");
 }
-
-// ── character CRUD ───────────────────────────────────────
-
-function openCharModal(edit = false) {
-  const c = edit ? state.characters.find((x) => x.id === state.currentId) : null;
-  document.getElementById("charModalTitle").textContent = edit
-    ? "编辑角色"
-    : "新建角色";
-  document.getElementById("charName").value = c ? c.name : "";
-  document.getElementById("charName").disabled = !!edit;
-  document.getElementById("charDisplayName").value = c ? c.display_name : "";
-  document.getElementById("charEmoji").value = "";
-  document.getElementById("charStage").value = c ? c.relationship_stage : "初识";
-  document.getElementById("charPersona").value = c ? c.persona : "";
-  document.getElementById("charStyle").value = c ? c.speaking_style : "";
-  document.getElementById("charNotes").value = c ? c.notes : "";
-  document.getElementById("charModal").dataset.mode = edit ? "edit" : "create";
-  openModal("charModal");
-}
-
-async function saveCharacter() {
-  const mode = document.getElementById("charModal").dataset.mode;
-  const body = {
-    name: document.getElementById("charName").value.trim(),
-    display_name: document.getElementById("charDisplayName").value.trim(),
-    avatar_emoji: "",
-    relationship_stage:
-      document.getElementById("charStage").value.trim() || "初识",
-    persona: document.getElementById("charPersona").value,
-    speaking_style: document.getElementById("charStyle").value,
-    notes: document.getElementById("charNotes").value,
-  };
-  if (!body.name || !body.display_name) {
-    toast("请填写内部名和显示名", "error");
-    return;
-  }
-  try {
-    if (mode === "edit") {
-      await api(`/api/characters/${state.currentId}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      });
-      toast("角色已更新", "success");
-    } else {
-      const c = await api("/api/characters", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      state.currentId = c.id;
-      toast("角色已创建", "success");
-    }
-    closeModal("charModal");
-    await loadStats();
-    await loadCharacters();
-    await selectCharacter(state.currentId);
-  } catch (e) {
-    toast(e.message, "error");
-  }
-}
-
-async function deleteCharacter() {
-  if (!state.currentId) return;
-  if (!confirm("确定删除该角色及其全部记忆？此操作不可恢复。")) return;
-  try {
-    await api(`/api/characters/${state.currentId}`, { method: "DELETE" });
-    state.currentId = null;
-    toast("角色已删除", "success");
-    document.getElementById("emptyMain").style.display = "block";
-    document.getElementById("mainContent").style.display = "none";
-    await loadStats();
-    await loadCharacters();
-  } catch (e) {
-    toast(e.message, "error");
-  }
-}
-
-// ── memory CRUD ──────────────────────────────────────────
 
 function openAddMemory() {
   state.editMemoryId = null;
@@ -381,11 +522,9 @@ async function saveMemory() {
       toast("记忆已添加", "success");
     }
     closeModal("memModal");
-    await loadStats();
     await loadCharacters();
     await loadMemories();
-    await loadPortablePreview();
-    await generateContext();
+    if (state.step === 3) await loadPortablePreview();
   } catch (e) {
     toast(e.message, "error");
   }
@@ -398,8 +537,7 @@ async function togglePin(id, pinned) {
       body: JSON.stringify({ is_pinned: pinned }),
     });
     await loadMemories();
-    await loadPortablePreview();
-    await generateContext();
+    if (state.step === 3) await loadPortablePreview();
   } catch (e) {
     toast(e.message, "error");
   }
@@ -412,8 +550,7 @@ async function toggleActive(id, active) {
       body: JSON.stringify({ is_active: active }),
     });
     await loadMemories();
-    await loadPortablePreview();
-    await generateContext();
+    if (state.step === 3) await loadPortablePreview();
   } catch (e) {
     toast(e.message, "error");
   }
@@ -424,61 +561,15 @@ async function deleteMemory(id) {
   try {
     await api(`/api/memories/${id}`, { method: "DELETE" });
     toast("已删除", "success");
-    await loadStats();
     await loadCharacters();
     await loadMemories();
-    await loadPortablePreview();
-    await generateContext();
+    if (state.step === 3) await loadPortablePreview();
   } catch (e) {
     toast(e.message, "error");
   }
 }
 
-// ── context ──────────────────────────────────────────────
-
-async function generateContext() {
-  if (!state.currentId) return;
-  const body = {
-    format: document.getElementById("ctxFormat").value,
-    max_chars: Number(document.getElementById("ctxMaxChars").value) || 6000,
-    include_persona: document.getElementById("ctxPersona").checked,
-    min_importance: Number(document.getElementById("ctxMinImp").value) || 1,
-    pinned_first: true,
-  };
-  try {
-    const data = await api(`/api/characters/${state.currentId}/context`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    document.getElementById("contextPreview").textContent = data.content;
-    document.getElementById("contextMeta").innerHTML = `
-      <span>${data.memory_count} 条记忆</span>
-      <span>${data.char_count} 字符</span>
-      <span>~${data.estimated_tokens} tokens</span>
-      <span>${data.truncated ? "已截断" : "完整"}</span>
-    `;
-  } catch (e) {
-    toast(e.message, "error");
-  }
-}
-
-async function copyContext() {
-  const text = document.getElementById("contextPreview").textContent;
-  try {
-    await navigator.clipboard.writeText(text);
-    toast("已复制记忆卡", "success");
-  } catch (_) {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-    toast("已复制到剪贴板", "success");
-  }
-}
-
-// ── portable package (AI-ready .memory.md is primary) ────
+// ── portable ─────────────────────────────────────────────
 
 async function loadPortablePreview() {
   if (!state.currentId) return;
@@ -490,15 +581,12 @@ async function loadPortablePreview() {
     if (meta) {
       meta.innerHTML = `
         <span class="stat-chip">格式 ${escapeHtml(data.format || "ai-memory-pack")}</span>
-        <span class="stat-chip">v${escapeHtml(String(data.format_version || "2.0"))}</span>
         <span class="stat-chip">记忆 ${data.memory_count ?? 0}</span>
         <span class="stat-chip">置顶 ${data.pinned_memory_count ?? 0}</span>
         <span class="stat-chip">${data.char_count ?? 0} 字符</span>
       `;
     }
-    if (preview) {
-      preview.textContent = data.markdown || "（空）";
-    }
+    if (preview) preview.textContent = data.markdown || "（空）";
   } catch (e) {
     if (preview) preview.textContent = `加载失败：${e.message}`;
   }
@@ -523,7 +611,7 @@ function filenameFromResponse(res, fallback) {
 
 async function downloadPortablePackage() {
   if (!state.currentId) {
-    toast("请先选择角色", "error");
+    toast("请先完成导入", "error");
     return;
   }
   try {
@@ -545,8 +633,13 @@ async function downloadPortablePackage() {
       filename,
       new Blob([text], { type: "text/markdown;charset=utf-8" })
     );
-    toast("已下载记忆包（发给新 AI 用）", "success");
+    toast("已下载。换平台时把该文件直接发给新 AI 即可。", "success");
     await loadPortablePreview();
+    document.getElementById("restoreGuide")?.classList.add("highlight");
+    setTimeout(
+      () => document.getElementById("restoreGuide")?.classList.remove("highlight"),
+      2400
+    );
   } catch (e) {
     try {
       const data = await api(`/api/characters/${state.currentId}/portable`);
@@ -563,30 +656,20 @@ async function downloadPortablePackage() {
 }
 
 async function downloadAcmBackup() {
-  if (!state.currentId) {
-    toast("请先选择角色", "error");
-    return;
-  }
+  if (!state.currentId) return;
   try {
     const res = await fetch(
       `/api/characters/${state.currentId}/portable/download?kind=json`,
       { credentials: "same-origin" }
     );
-    if (!res.ok) {
-      let msg = res.statusText;
-      try {
-        const data = await res.json();
-        msg = data.detail || msg;
-      } catch (_) {}
-      throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
-    }
+    if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
     const filename = filenameFromResponse(res, "character.acm.json");
     downloadBlob(
       filename,
       new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
     );
-    toast("已下载站内备份 .acm.json（仅用于重新导入本站）", "success");
+    toast("已下载站内备份", "success");
   } catch (e) {
     toast(e.message, "error");
   }
@@ -600,8 +683,8 @@ async function copyPortableMarkdown() {
       (await api(`/api/characters/${state.currentId}/portable`));
     const text = data.markdown || "";
     if (!text) throw new Error("记忆包为空");
-    await navigator.clipboard.writeText(text);
-    toast("记忆包全文已复制，可直接粘贴给新 AI", "success");
+    await copyText(text);
+    toast("已复制全文，可粘贴给新 AI", "success");
   } catch (e) {
     toast(e.message, "error");
   }
@@ -610,39 +693,26 @@ async function copyPortableMarkdown() {
 async function showPortableSpec() {
   try {
     const spec = await api("/api/portable/spec");
+    const prompt = state.exportPrompt || (await api("/api/export-prompt"));
     const body = document.getElementById("specBody");
     const ex = document.getElementById("specExample");
-    const primary = spec.primary || spec;
-    const backup = spec.backup;
     body.innerHTML = `
-      <p><strong>${escapeHtml(primary.format || spec.format)}</strong>
-      v${escapeHtml(String(primary.format_version || spec.format_version || ""))}</p>
-      <p>${escapeHtml(primary.description || spec.description || "")}</p>
+      <p><strong>主路径</strong>：给旧 AI 提示词 → 粘贴全量回复 → 本站解析 → 下载 .memory.md → 发给新 AI。</p>
+      <p>${escapeHtml(spec.description || "")}</p>
       <ol style="padding-left:1.2em;margin:10px 0">
-        ${(primary.workflow || spec.workflow || [])
+        ${(prompt.tips || [])
           .map((s) => `<li>${escapeHtml(s)}</li>`)
           .join("")}
       </ol>
-      <p class="hint">主文件：<code>${escapeHtml(primary.file_extension || ".memory.md")}</code>
-      · 用途：直接发给新 AI 恢复记忆（不经过本站）</p>
-      ${
-        backup
-          ? `<p class="hint">站内备份：<code>${escapeHtml(backup.file_extension || ".acm.json")}</code>
-          · ${escapeHtml(backup.description || "重新导入本站编辑")}</p>`
-          : ""
-      }
     `;
-    ex.textContent =
-      primary.example_preview ||
-      spec.example_preview ||
-      JSON.stringify(spec.example_minimal || spec, null, 2);
+    ex.textContent = prompt.prompt?.slice(0, 1200) || spec.example_preview || "";
     openModal("specModal");
   } catch (e) {
     toast(e.message, "error");
   }
 }
 
-// ── import / export ──────────────────────────────────────
+// ── secondary chat extract ───────────────────────────────
 
 function openImportModal() {
   document.getElementById("importText").value = "";
@@ -660,14 +730,11 @@ async function runImportSuggest() {
   try {
     const data = await api(`/api/characters/${state.currentId}/import/suggest`, {
       method: "POST",
-      body: JSON.stringify({
-        text,
-        source_platform: "manual",
-      }),
+      body: JSON.stringify({ text, source_platform: "manual" }),
     });
     state.suggestions = data.suggestions;
     renderSuggestions();
-    if (!data.suggestions.length) toast("未提取到可用记忆建议", "error");
+    if (!data.suggestions.length) toast("未提取到可用建议", "error");
   } catch (e) {
     toast(e.message, "error");
   }
@@ -723,23 +790,10 @@ async function confirmImport() {
         body: JSON.stringify({ memories, skip_duplicates: true }),
       }
     );
-    const raw = document.getElementById("importText").value.slice(0, 2000);
-    await api(`/api/characters/${state.currentId}/sessions`, {
-      method: "POST",
-      body: JSON.stringify({
-        platform: "manual",
-        title: `对话提取 ${created.length} 条`,
-        summary: `从对话文本提取 ${created.length} 条记忆`,
-        raw_excerpt: raw,
-      }),
-    });
-    toast(`成功导入 ${created.length} 条记忆`, "success");
+    toast(`已补充 ${created.length} 条`, "success");
     closeModal("importModal");
-    await loadStats();
     await loadCharacters();
     await loadMemories();
-    await loadPortablePreview();
-    await generateContext();
   } catch (e) {
     toast(e.message, "error");
   }
@@ -750,24 +804,15 @@ async function importBundleFile(file) {
   const mode = (modeEl && modeEl.value) || "create";
   try {
     const text = await file.text();
-    let bundle;
-    try {
-      bundle = JSON.parse(text);
-    } catch (_) {
-      throw new Error("文件不是合法 JSON");
-    }
+    const bundle = JSON.parse(text);
     const result = await api(
       `/api/portable/import?mode=${encodeURIComponent(mode)}`,
-      {
-        method: "POST",
-        body: JSON.stringify(bundle),
-      }
+      { method: "POST", body: JSON.stringify(bundle) }
     );
-    toast(result.message || `已恢复「${result.character.display_name}」`, "success");
+    toast(result.message || "已载入备份", "success");
     state.currentId = result.character.id;
-    await loadStats();
     await loadCharacters();
-    await selectCharacter(result.character.id);
+    await selectCharacter(result.character.id, 2);
   } catch (e) {
     toast(e.message || "导入失败", "error");
   }
@@ -776,11 +821,10 @@ async function importBundleFile(file) {
 async function seedDemo() {
   try {
     const r = await api("/api/demo/seed", { method: "POST" });
-    toast(r.message, "success");
+    toast(r.message + " — 可直接体验下载", "success");
     state.currentId = r.character_id;
-    await loadStats();
     await loadCharacters();
-    await selectCharacter(r.character_id);
+    await selectCharacter(r.character_id, 3);
   } catch (e) {
     toast(e.message, "error");
   }
@@ -791,66 +835,60 @@ async function seedDemo() {
 function initSelects() {
   fillSelect(document.getElementById("filterCategory"), CATEGORIES, true);
   fillSelect(document.getElementById("memCategory"), CATEGORIES);
-  fillSelect(document.getElementById("ctxFormat"), FORMATS);
-  document.getElementById("ctxFormat").value = "universal";
   document.getElementById("memImportance").innerHTML = [1, 2, 3, 4, 5]
     .map((n) => `<option value="${n}">${importanceLabel(n)}</option>`)
-    .join("");
-  document.getElementById("ctxMinImp").innerHTML = [1, 2, 3, 4, 5]
-    .map((n) => `<option value="${n}">不低于 ${n}</option>`)
     .join("");
 }
 
 function bindAppEvents() {
-  document.getElementById("btnNewChar").onclick = () => openCharModal(false);
-  document.getElementById("btnEditChar").onclick = () => openCharModal(true);
+  document.getElementById("btnCopyExportPrompt").onclick = copyExportPrompt;
+  document.getElementById("btnPreviewDump").onclick = previewDump;
+  document.getElementById("btnImportDump").onclick = importDump;
+  document.getElementById("btnSaveChar").onclick = saveCharacterManual;
+  document.getElementById("btnEditChar").onclick = openEditPersona;
+  document.getElementById("btnSaveEditChar").onclick = saveEditPersona;
   document.getElementById("btnDeleteChar").onclick = deleteCharacter;
-  document.getElementById("btnSaveChar").onclick = saveCharacter;
+  document.getElementById("btnNewChar").onclick = startFresh;
   document.getElementById("btnAddMem").onclick = openAddMemory;
   document.getElementById("btnSaveMem").onclick = saveMemory;
-  document.getElementById("btnImport").onclick = () => openImportModal();
+  document.getElementById("btnImport").onclick = openImportModal;
   document.getElementById("btnSuggest").onclick = runImportSuggest;
   document.getElementById("btnConfirmImport").onclick = confirmImport;
-  document.getElementById("btnDownloadPortable").onclick = downloadPortablePackage;
   document.getElementById("btnDownloadPortableMain").onclick =
     downloadPortablePackage;
-  const btnCopyMd = document.getElementById("btnCopyPortableMd");
-  if (btnCopyMd) btnCopyMd.onclick = copyPortableMarkdown;
-  const btnAcm = document.getElementById("btnDownloadAcmBackup");
-  if (btnAcm) btnAcm.onclick = downloadAcmBackup;
+  document.getElementById("btnCopyPortableMd").onclick = copyPortableMarkdown;
+  document.getElementById("btnDownloadAcmBackup").onclick = downloadAcmBackup;
   document.getElementById("btnShowSpec").onclick = showPortableSpec;
-  document.getElementById("btnCopyCtx").onclick = copyContext;
-  document.getElementById("btnGenCtx").onclick = generateContext;
   document.getElementById("btnDemo").onclick = seedDemo;
-  document.getElementById("btnRefresh").onclick = async () => {
-    await loadStats();
-    await loadCharacters();
-    if (state.currentId) {
-      await loadMemories();
-      await loadPortablePreview();
-      await generateContext();
-    }
-  };
+  document.getElementById("btnGoStep3").onclick = () => goStep(3);
+  document.getElementById("btnBackStep2").onclick = () => goStep(2);
+
+  document.querySelectorAll(".step-tab").forEach((tab) => {
+    tab.onclick = () => {
+      if (tab.disabled) return;
+      const s = Number(tab.dataset.step);
+      if (s > 1 && !state.currentId) {
+        toast("请先完成第 1 步：粘贴旧 AI 导出并导入", "error");
+        return;
+      }
+      goStep(s);
+    };
+  });
+
   document.getElementById("searchQ").oninput = debounce(loadMemories, 250);
   document.getElementById("filterCategory").onchange = loadMemories;
   document.getElementById("filterPinned").onchange = loadMemories;
   document.getElementById("filterActive").onchange = loadMemories;
-  document.getElementById("ctxFormat").onchange = generateContext;
-  document.getElementById("ctxMaxChars").onchange = generateContext;
-  document.getElementById("ctxMinImp").onchange = generateContext;
-  document.getElementById("ctxPersona").onchange = generateContext;
 
-  const bindFile = (id) => {
+  for (const id of ["fileImport", "fileImportMain"]) {
     const el = document.getElementById(id);
-    if (!el) return;
+    if (!el) continue;
     el.onchange = (e) => {
       const f = e.target.files?.[0];
       if (f) importBundleFile(f);
       e.target.value = "";
     };
-  };
-  bindFile("fileImport");
-  bindFile("fileImportMain");
+  }
 
   document.querySelectorAll("[data-close]").forEach((btn) => {
     btn.onclick = () => closeModal(btn.dataset.close);
@@ -861,6 +899,27 @@ window.togglePin = togglePin;
 window.toggleActive = toggleActive;
 window.openEditMemory = openEditMemory;
 window.deleteMemory = deleteMemory;
+
+async function enterApp() {
+  bindAppEvents();
+  initSelects();
+  await loadExportPrompt();
+  try {
+    await loadCharacters();
+    if (state.characters.length >= 1) {
+      await selectCharacter(state.characters[0].id, 2);
+      if (state.characters.length > 1) {
+        toast("已载入本机上次导入的数据，可继续核对或下载", "info");
+      }
+    } else {
+      goStep(1);
+    }
+  } catch (e) {
+    console.error(e);
+    toast(e.message || "初始化失败", "error");
+    goStep(1);
+  }
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   enterApp();

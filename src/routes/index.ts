@@ -17,6 +17,10 @@ import {
 import { contentHash, tagsFromJson, tagsToJson } from '../services/utils';
 import { PLATFORMS } from '../services/platforms';
 import { suggestMemoriesFromText } from '../services/importSuggest';
+import {
+  buildExportPromptForPreviousAi,
+  parseAiFullDump,
+} from '../services/aiDump';
 
 const router = Router();
 
@@ -53,15 +57,26 @@ async function uniqueCharacterName(base: string): Promise<string> {
 
 // Health
 router.get('/health', (_req, res) => {
-  res.json({ ok: true, version: '1.0.0', mode: 'web', site_name: 'AI Character Memory' });
+  res.json({
+    ok: true,
+    version: '1.2.0',
+    mode: 'web',
+    site_name: 'AI 记忆迁移',
+    product_mode: 'one_shot_export',
+  });
 });
 
 router.get('/site', (_req, res) => {
   res.json({
-    site_name: 'AI Character Memory',
-    site_tagline: '角色人设与记忆本地库',
+    site_name: 'AI 记忆迁移',
+    site_tagline: '一次性整理 · 下载本地 · 换平台直接恢复',
+    product_mode: 'one_shot_export',
+    product_boundary:
+      '本站是一次性记忆整理器，不是常驻云端记忆库。恢复记忆路径是本地 .memory.md → 新 AI，不经过本站。',
+    primary_flow:
+      '给旧 AI 提示词 → 旧 AI 输出全量信息 → 粘贴到本站解析 → 按需补细节 → 下载 .memory.md → 发给新 AI',
     allow_register: false,
-    version: '1.0.0',
+    version: '1.2.0',
     mode: 'web',
   });
 });
@@ -73,6 +88,120 @@ router.get('/platforms', (_req, res) => {
 
 router.get('/portable/spec', (_req, res) => {
   res.json(formatSpecPublic());
+});
+
+/** Prompt user copies into their previous AI to request a full memory dump. */
+router.get('/export-prompt', (_req, res) => {
+  res.json(buildExportPromptForPreviousAi());
+});
+
+/**
+ * Preview-parse dump text without writing to DB.
+ * Body: { text: string }
+ */
+router.post('/import/ai-dump/preview', (req, res) => {
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ detail: '请粘贴旧 AI 返回的全量导出正文' });
+  if (text.length > 500_000) {
+    return res.status(400).json({ detail: '文本过长（上限约 50 万字符）' });
+  }
+  const parsed = parseAiFullDump(text);
+  res.json({
+    ok: true,
+    character: parsed.character,
+    memory_count: parsed.memories.length,
+    memories_preview: parsed.memories.slice(0, 30),
+    parse_notes: parsed.parse_notes,
+    source_format: parsed.source_format,
+  });
+});
+
+/**
+ * Parse AI full dump → create character + memories in one shot.
+ * Body: { text: string, mode?: 'create' }
+ */
+router.post('/import/ai-dump', async (req, res) => {
+  const text = String(req.body?.text || '').trim();
+  if (!text) return res.status(400).json({ detail: '请粘贴旧 AI 返回的全量导出正文' });
+  if (text.length > 500_000) {
+    return res.status(400).json({ detail: '文本过长（上限约 50 万字符）' });
+  }
+
+  try {
+    const parsed = parseAiFullDump(text);
+    if (
+      !parsed.character.display_name?.trim() ||
+      parsed.character.display_name === '未命名角色'
+    ) {
+      // still allow if we have persona or memories
+      if (!parsed.character.persona && parsed.memories.length === 0) {
+        return res.status(400).json({
+          detail:
+            '未能解析出有效人设或记忆。请确认已粘贴旧 AI 的完整导出正文（含「角色身份 / 人设 / 持久记忆」）。',
+          parse_notes: parsed.parse_notes,
+        });
+      }
+    }
+
+    const name = await uniqueCharacterName(parsed.character.name || 'imported');
+    const char = await prisma.character.create({
+      data: {
+        name,
+        display_name: parsed.character.display_name || name,
+        avatar_emoji: '',
+        persona: parsed.character.persona || '',
+        speaking_style: parsed.character.speaking_style || '',
+        relationship_stage: parsed.character.relationship_stage || '初识',
+        notes: parsed.character.notes || '',
+      },
+    });
+
+    let created = 0;
+    const seenHash = new Set<string>();
+    for (const m of parsed.memories) {
+      const content = m.content.trim();
+      if (!content) continue;
+      const hash = contentHash(content);
+      if (seenHash.has(hash)) continue;
+      seenHash.add(hash);
+      await prisma.memory.create({
+        data: {
+          character_id: char.id,
+          content,
+          content_hash: hash,
+          category: m.category || 'other',
+          importance: m.importance || 3,
+          tags: tagsToJson(m.tags?.length ? m.tags : ['ai-dump']),
+          source_platform: 'ai_dump',
+          is_pinned: Boolean(m.is_pinned),
+          is_active: true,
+        },
+      });
+      created += 1;
+    }
+
+    await prisma.sessionLog.create({
+      data: {
+        character_id: char.id,
+        platform: 'ai_dump',
+        title: `旧 AI 全量导入 ${created} 条`,
+        summary: `从旧 AI 导出正文解析：人设 + ${created} 条记忆`,
+        raw_excerpt: text.slice(0, 2000),
+      },
+    });
+
+    res.status(201).json({
+      ok: true,
+      message: `已导入「${char.display_name}」：${created} 条记忆。可在下一步核对并补充，再下载带走。`,
+      character: { ...char, memory_count: created },
+      memory_count: created,
+      parse_notes: parsed.parse_notes,
+      source_format: parsed.source_format,
+    });
+  } catch (err: any) {
+    console.error('[import/ai-dump]', err);
+    res.status(500).json({ detail: err.message || '导入失败' });
+  }
 });
 
 // Stats
